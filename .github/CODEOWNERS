@@ -1,0 +1,27 @@
+# Global owners
+* @BotshareAI
+
+# Firmware
+/firmware/ @BotshareAI
+
+# Board support
+/boards/ @BotshareAI
+
+# Configurations
+/configs/ @BotshareAI
+
+# Documentation
+/docs/ @BotshareAI
+
+# Tests and tools
+/tests/ @BotshareAI
+/tools/ @BotshareAI
+
+# Root governance files
+/README.md @BotshareAI
+/LICENSE @BotshareAI
+/CONTRIBUTING.md @BotshareAI
+/SECURITY.md @BotshareAI
+/NOTICE.md @BotshareAI
+/AUTHORS.md @BotshareAI
+/CHANGELOG.md @BotshareAI
