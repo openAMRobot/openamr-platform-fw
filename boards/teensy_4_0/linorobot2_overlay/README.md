@@ -1,0 +1,54 @@
+# Teensy 4.0 — linorobot2 overlay
+
+Firmware for the **real OpenAMRobot differential base**, running on a **Teensy 4.0**
+(NXP i.MX RT1062, Cortex-M7 @ 600 MHz).
+
+## What this is (and is not)
+
+This is **not** the modular custom firmware planned under `firmware/`
+(`encoder_reader`, `motor_controller_bridge`, `sensor_bridge`, `battery_monitor`,
+`safety_io`). It is an **overlay on [linorobot2](https://github.com/linorobot/linorobot2)
+firmware**: only the files that were changed/added for this robot are kept here. The full
+linorobot2 firmware tree is the base; you drop these files on top of it.
+
+Going modular later is a clean migration — the mapping below shows which linorobot2
+internals already cover each planned module, so they can be split out one at a time.
+
+## Module mapping (Alex's plan → linorobot2 internals)
+
+| Planned module (`firmware/…`) | Where it lives in this overlay / linorobot2 | Status |
+|---|---|---|
+| `encoder_reader` | linorobot2 `Encoder` lib reading the AS5040 A/B quadrature (pins in `config/lino_base_config.h`) | ✅ covered |
+| `motor_controller_bridge` | linorobot2 `Motor` + `Kinematics` + the per-wheel **PID** (`lib/pid/pid.cpp`) → PWM + DIR to the BLDC drivers | ✅ covered |
+| `sensor_bridge` | linorobot2 IMU read (MPU-6500) → `/imu/data`; wheel odometry → `/odom/unfiltered` | ✅ covered |
+| `safety_io` | 200 ms `/cmd_vel` **watchdog** (motors stop if commands stop) | 🟡 partial (no HW E-stop / safety_io) |
+| `battery_monitor` | — | ⏳ not implemented (no voltage telemetry yet) |
+| communication bridge | micro-ROS over USB serial (115200), agent on the host (`openamr-platform-sw/openamrobot_drivers`) | ✅ covered |
+
+## My changes vs upstream linorobot2
+
+- **`config/lino_base_config.h`** — this robot's pin map (motors PWM 1/5, FWD 20/6, REV 21/8;
+  encoders A/B 14·15 left & 11·12 right; IMU I²C SDA/SCL 18/19), geometry
+  (`WHEEL_DIAMETER 0.2`, `LR_WHEELS_DISTANCE 0.46`), `MOTOR_OPERATING_VOLTAGE 24`,
+  `COUNTS_PER_REV 1024`, `BAUDRATE 115200`, PID gains, and the IMU workaround
+  `USE_MPU9250_IMU` (the chip is an **MPU-6500**, not the 6050 on the silkscreen).
+- **`lib/pid/pid.cpp`** — added **anti-windup**: upstream had an unbounded integral term
+  ("catapult" on saturation). The integral is now clamped to `i_limit = max_val / ki` so
+  `ki · integral` cannot exceed the output range.
+- **`src/firmware.ino`** — the 50 Hz control loop (upstream) plus:
+  - **debug telemetry** publishers `/debug/left`, `/debug/right`, `/debug/pwm`
+    (best-effort: target/measured rpm, encoder counts, PWM) — what made hardware diagnosis
+    possible;
+  - an **open-loop test mode** subscriber `/debug/openloop` (fixed PWM on both motors, PID
+    bypassed) — used to prove the motors/encoders independently of the closed loop.
+
+## Build & flash
+
+The overlay needs the linorobot2 firmware base. In a linorobot2 firmware checkout
+(PlatformIO), copy these files over the matching paths, then build/flash for the Teensy 4.0
+target. The published topics are `/cmd_vel` (in), `/odom/unfiltered`, `/imu/data`, and the
+`/debug/*` topics above; the host bridges them with the micro-ROS agent.
+
+> ⚠️ The Teensy 4.0 is **not 5 V tolerant**. The AS5040 encoders must be powered at **3.3 V**
+> (5 V supply drives ~5 V on A/B → over-voltage on the MCU). See the hardware repo
+> (`openamr-platform-hw/electrical/sensors`).
