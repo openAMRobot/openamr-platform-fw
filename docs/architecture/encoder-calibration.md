@@ -5,8 +5,8 @@
 The left wheel showed a slow low-speed "oscillation" (a ~1 s, ±6 rpm limit cycle) that barely
 responded to PID gains. It was **not** a control-loop problem: the left AS5040 magnet is
 off-centre, so the *measured* rpm carries a geometric ripple that the PID was chasing. This page
-documents the ripple, the runtime correction table, and why the table is a mitigation rather than
-the durable fix.
+documents the ripple, the deployed runtime correction table + per-boot phase re-align (the working
+fix), and why a static/compiled table can't work and the velocity filter was rejected.
 
 ## The ripple (measured)
 
@@ -53,10 +53,17 @@ The **shape** of the ripple is fixed (it is the magnet geometry); only its **pha
 boot. So the shape is captured once as a reference, and each boot only re-aligns the phase:
 
 1. A reference table (fixed shape) lives in the host tooling (`scripts/encoder_ref_table.json` in
-   the working repo).
+   the separate **`openamr`** working repo — the alignment scripts are host-side and are **not**
+   part of this firmware repo).
 2. After **every Teensy power-cycle**, a short alignment run (~6–8 s) spins the wheels, measures
    the raw per-angle ripple, correlates it sub-bin (~1°) against the reference to find the current
    phase, rolls the reference to that phase, and publishes the 72-float table on `/debug/enc_cal`.
+   Run it from the host, wheels off the ground, with the micro-ROS agent up and 24 V power on:
+   ```bash
+   cd ~/Documents/openamr && source /opt/ros/jazzy/setup.bash \
+     && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=0 \
+     && python3 scripts/align_enc_cal.py --arm 250
+   ```
 3. The table lives in Teensy RAM, so it must be re-sent after a power-cycle — a ROS restart on the
    host does **not** require re-alignment, but a Teensy reboot does.
 
@@ -66,24 +73,36 @@ boot. So the shape is captured once as a reference, and each boot only re-aligns
 > ripple (~71 %, worse than raw). Symptom: the post-check shows a **larger** ripple than the raw
 > baseline.
 
-Result after alignment: LEFT ±40 % → ±4 %, RIGHT ±3.5 %, flat, instant, and it survives a reboot
-once re-aligned.
+The **±40 % (LEFT) / ±4 % (RIGHT)** figures above are the **raw, un-calibrated** ripple — what you
+see when no table is loaded (unity passthrough) or before `align_enc_cal` has run this boot. After
+alignment the residual is **LEFT ±4 %, RIGHT ±3.5 %**, flat, instant, and it survives a reboot once
+re-aligned.
 
-## Honest assessment: table vs velocity filter
+## The deployed fix (and the alternatives that were rejected)
 
-The runtime table works, but it is a **per-boot ritual** that is fragile (the phase must be
-re-aligned every power-cycle, and the flatten-before-measure gotcha is easy to hit). Two
-alternatives were considered:
+**The in-use, working ripple fix is the hot-loaded correction table (`calib_rpm`) + a per-boot
+phase re-align (`align_enc_cal.py`, ~8 s).** That is what brings LEFT from ±40 % to ±4 % and
+survives a reboot once re-aligned. It is a **per-boot ritual** — the phase must be re-aligned every
+power-cycle, and the flatten-before-measure gotcha is easy to hit — but it is the deployed solution,
+not a stopgap for something else.
 
-- A **half-revolution angular velocity filter** (average over 512 counts) cancels the ripple
-  cleanly but adds ~0.6 s of lag — rejected for closed-loop control.
-- The adopted low-speed estimator (small 12-count window) reduces quantization noise without the
-  ripple-cancelling lag, and the table corrects the remaining per-angle error.
+What does **not** work, and what was rejected:
 
-**The durable fix is a velocity filter / better encoder mounting, not a position-indexed table:**
-a position-indexed table *cannot* be made reliable with an incremental encoder because the phase
-is lost at every power-cycle. The runtime table + per-boot re-alignment is the working mitigation
-today; treat it as such.
+- **A static / compiled-in table fails.** The encoder is incremental, so `counts mod CPR` is an
+  angle relative to the boot position; every reboot shifts the encoder zero by a random (and
+  different left/right) angle, so a fixed table is applied at the wrong phase (see the section
+  above). Only a table that is re-aligned at runtime each boot can work.
+- **A half-revolution angular velocity filter** (average over 512 counts) cancels the ripple
+  cleanly but adds **~0.6 s of lag** — **considered and rejected** for closed-loop control. The
+  deployed ripple fix is **not** this velocity filter.
+- Do **not** conflate the ripple fix with the firmware's separate **small-window (12-count)
+  velocity estimator**: that is only a *low-speed quantization-noise* filter (see
+  [control loop](control-loop.md)), it does **not** remove the per-angle ripple — the align-table
+  does.
+
+**The only durable *hardware* fix is better encoder mounting** (a centred/untilted AS5040 magnet),
+which removes the geometric ripple at the source. Until then, the runtime align-table + per-boot
+re-alignment is the working solution.
 
 See [control loop](control-loop.md) for where `calib_rpm` sits in the loop, and
 [debug telemetry](debug-telemetry.md#debugenc_cal--runtime-encoder-ripple-table-std_msgsmsgfloat32multiarray-reliable)

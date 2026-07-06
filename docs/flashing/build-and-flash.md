@@ -13,11 +13,11 @@ PlatformIO builds the `teensy40` environment, which uses `config/lino_base_confi
 
 ```bash
 cd <linorobot2_hardware>/firmware
-ROS_DISTRO=jazzy pio run -e teensy40
+ROS_DISTRO=jazzy ~/.platformio/penv/bin/pio run -e teensy40
 ```
 
-- On Ubuntu 24.04, PlatformIO is run from its own venv (`~/.platformio/penv/bin/pio`) to avoid the
-  PEP 668 "externally managed environment" restriction.
+- On Ubuntu 24.04, PlatformIO **must** be run from its own venv (`~/.platformio/penv/bin/pio`, as
+  above) to avoid the PEP 668 "externally managed environment" restriction — a bare `pio` may fail.
 - First build ≈ 5 min (compiles micro-ROS); incremental ≈ 8 s.
 - The build output is `.pio/build/teensy40/firmware.hex`.
 

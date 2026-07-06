@@ -9,8 +9,14 @@ the LED status codes.
 ## Transport & agent
 
 - **USB serial** at **`BAUDRATE = 115200`** — this must match the agent exactly.
-- Start the agent on the host, pointing at the Teensy's serial device:
+- Start the agent on the host, pointing at the Teensy's serial device. A non-interactive shell
+  does **not** source ROS, so source it and set the matching RMW/domain first (see the DDS note
+  below):
   ```bash
+  source /opt/ros/jazzy/setup.bash
+  source ~/linorobot2_ws/install/setup.bash
+  export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+  export ROS_DOMAIN_ID=0
   ros2 run micro_ros_agent micro_ros_agent serial -b 115200 -D <teensy-serial-by-id>
   ```
   Use the stable `/dev/serial/by-id/usb-Teensyduino_USB_Serial_*-if00` path (not `/dev/ttyACM*`,
@@ -63,7 +69,7 @@ codes below).
 | Solid on | agent connected / idle (also toggles on each `/cmd_vel`) |
 | Toggling with control | actively driving in closed loop |
 | 2 blinks (loop) | fatal RCL error (`rclErrorLoop`) |
-| 3 blinks | IMU init failed |
+| 3 blinks | IMU init failed — **also** any `createEntities()` RCL failure (the non-syslog `RCCHECK` flashes 3 then retries) |
 | 4 blinks | magnetometer init failed |
 
 After bringup, if you use the encoder ripple table, run the host alignment once per Teensy

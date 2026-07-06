@@ -40,10 +40,10 @@ See [debug telemetry](../architecture/debug-telemetry.md) for the full interface
 
 Closed-loop sweep on the ground (under load, PID + dither, like docking), 2026-07-02:
 
-| Axis | Stalls below | Reliable floor | Clean floor |
-|---|---|---|---|
-| Linear  | ~0.03 m/s (judder) | **0.04 m/s** | 0.05 m/s |
-| Angular | ~0.10 rad/s (judder) | **0.15 rad/s** | 0.20 rad/s |
+| Axis | Stalls | Judders | Reliable floor | Clean floor |
+|---|---|---|---|---|
+| Linear  | ≤ 0.02 m/s | ~0.03 m/s | **0.04 m/s** | 0.05 m/s |
+| Angular | ≤ 0.08 rad/s | ~0.10–0.12 rad/s | **0.15 rad/s** | 0.20 rad/s |
 
 - Keep commanded speeds **above** these floors (docking tapers are floored at 0.05 m/s, rotation at
   0.17 rad/s). Below the floor the wheels judder or stall from stick-slip.

@@ -20,7 +20,7 @@ internals already cover each planned module, so they can be split out one at a t
 |---|---|---|
 | `encoder_reader` | linorobot2 `Encoder` lib reading the AS5040 A/B quadrature (pins in `config/lino_base_config.h`) | ✅ covered |
 | `motor_controller_bridge` | linorobot2 `Motor` + `Kinematics` + the per-wheel **PID** (`lib/pid/pid.cpp`) → PWM + DIR to the BLDC drivers | ✅ covered |
-| `sensor_bridge` | linorobot2 IMU read (MPU-6500) → `/imu/data`; wheel odometry → `/odom/unfiltered` | ✅ covered |
+| `sensor_bridge` | linorobot2 IMU read (MPU-6500) → `/imu/data_raw` + `/imu/mag`; wheel odometry → `/odom/unfiltered` | ✅ covered |
 | `safety_io` | 200 ms `/cmd_vel` **watchdog** (motors stop if commands stop) | 🟡 partial (no HW E-stop / safety_io) |
 | `battery_monitor` | — | ⏳ not implemented (no voltage telemetry yet) |
 | communication bridge | micro-ROS over USB serial (115200), agent on the host (`openamr-platform-sw/openamrobot_drivers`) | ✅ covered |
@@ -28,13 +28,18 @@ internals already cover each planned module, so they can be split out one at a t
 ## My changes vs upstream linorobot2
 
 - **`config/lino_base_config.h`** — this robot's pin map (motors PWM 1/5, FWD 20/6, REV 21/8;
-  encoders A/B 14·15 left & 11·12 right; IMU I²C SDA/SCL 18/19), geometry
+  encoders A/B 14·15 left & 11·12 right; IMU I²C on the Teensy 4.0 **default Wire pins** SDA/SCL
+  18/19 — `SDA_PIN`/`SCL_PIN` are left commented out, so 18/19 are the hardware default, not
+  `#define`d), geometry
   (`WHEEL_DIAMETER 0.2`, `LR_WHEELS_DISTANCE 0.46`), `MOTOR_OPERATING_VOLTAGE 24`,
   `COUNTS_PER_REV 1024`, `BAUDRATE 115200`, PID gains, and the IMU workaround
   `USE_MPU9250_IMU` (the chip is an **MPU-6500**, not the 6050 on the silkscreen).
 - **`lib/pid/pid.cpp`** — added **anti-windup**: upstream had an unbounded integral term
-  ("catapult" on saturation). The integral is now clamped to `i_limit = max_val / ki` so
-  `ki · integral` cannot exceed the output range.
+  ("catapult" on saturation). The integral now uses **back-calculation**: when the output
+  saturates, the excess is subtracted straight back out of the integral
+  (`integral -= (pid − limit) / ki`) so `ki · integral` only ever supplies what is actually
+  achievable. Unlike a static clamp or conditional freezing, this *bleeds* the windup out, so a
+  long saturated rise no longer overshoots.
 - **`src/firmware.ino`** — the 50 Hz control loop (upstream) plus:
   - a **velocity feedforward + PID** controller (the feedforward carries the holding PWM so the
     closed-loop response is speed-independent), a **small-window velocity estimator** and an
@@ -58,8 +63,9 @@ internals already cover each planned module, so they can be split out one at a t
 
 The overlay needs the linorobot2 firmware base. In a linorobot2 firmware checkout
 (PlatformIO), copy these files over the matching paths, then build/flash for the Teensy 4.0
-target. The published topics are `/cmd_vel` (in), `/odom/unfiltered`, `/imu/data`, and the
-`/debug/*` topics above; the host bridges them with the micro-ROS agent.
+target. The published topics are `/cmd_vel` (in), `/odom/unfiltered`, `/imu/data_raw`, `/imu/mag`,
+and the `/debug/*` topics above; the host bridges them with the micro-ROS agent. (The firmware
+publishes **raw** IMU; the filtered `/imu/data` is produced by the host EKF/Madgwick pipeline.)
 
 > ⚠️ The Teensy 4.0 is **not 5 V tolerant**. The AS5040 encoders must be powered at **3.3 V**
 > (5 V supply drives ~5 V on A/B → over-voltage on the MCU). See the hardware repo

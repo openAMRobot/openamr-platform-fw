@@ -28,9 +28,11 @@ By design: the firmware reads only `x` and applies it to **both** motors (motor2
 ## Left wheel "oscillates" at low speed
 
 Not a PID problem — the left AS5040 magnet is off-centre, so the **measured** rpm carries a ~40 %
-per-revolution ripple the PID chases. Mitigation is the runtime ripple table; the durable fix is a
-velocity filter / better encoder mounting. See
-[encoder calibration](../architecture/encoder-calibration.md).
+per-revolution ripple the PID chases. The deployed fix is the hot-loaded ripple table +
+per-boot phase re-align (`align_enc_cal.py`, run after every Teensy power-cycle); the only durable
+*hardware* fix is better encoder mounting. (A 512-count velocity filter was rejected for ~0.6 s
+lag; the firmware's 12-count estimator only tames low-speed noise, it does not remove the ripple.)
+See [encoder calibration](../architecture/encoder-calibration.md).
 
 ## Ripple got *worse* after calibration
 

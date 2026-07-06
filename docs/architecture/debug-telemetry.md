@@ -70,6 +70,15 @@ Updates the controller in RAM (compiled defaults are unchanged; a reflash restor
 > ⚠️ A code comment near the declaration lists `angular.z = ff_offset`; the **actual** callback
 > uses `angular.z = dither_amp`. `ff_offset` is fixed at its tuned default.
 
+```
+# set K_P=2.0 K_I=0.1 K_D=0.1, motor2_gain=1.0, kff=7.87, dither=92 (the compiled defaults)
+ros2 topic pub --once /debug/tune geometry_msgs/msg/Twist \
+  "{linear: {x: 2.0, y: 0.1, z: 0.1}, angular: {x: 1.0, y: 7.87, z: 92.0}}"
+```
+
+> A field guarded by `> 0` is left untouched when sent as `0` (so you can nudge one gain without
+> disturbing `motor2_gain`/`kff`); `angular.z` (dither) accepts `0` to disable it.
+
 ### `/debug/enc_cal` — runtime encoder ripple table (`std_msgs/msg/Float32MultiArray`, RELIABLE)
 
 72 floats = 36 `LEFT_CAL` bins then 36 `RIGHT_CAL` bins. Loaded into RAM and applied instantly.

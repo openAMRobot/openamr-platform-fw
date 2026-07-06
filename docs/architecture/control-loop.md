@@ -54,9 +54,11 @@ pwm = feedforward(target_rpm) + pid.compute(target_rpm, measured_rpm)
   works, so the **closed-loop response has the same shape at every speed** (no
   speed-dependent windup/overshoot).
 - **PID** (`lib/pid/pid.cpp`) only trims the residual error. One PID per wheel, output clamped
-  to `[PWM_MIN, PWM_MAX]`. The integral is bounded by **anti-windup** (`i_limit = PWM_MAX / K_I`)
-  so `K_I · integral` can never exceed the output range — upstream linorobot2 had an unbounded
-  integral that "catapulted" on saturation.
+  to `[PWM_MIN, PWM_MAX]`. The integral uses **back-calculation anti-windup**: on saturation the
+  excess is subtracted straight back out of the integral (`integral -= (pid − limit) / K_I`), so
+  `K_I · integral` only ever supplies what is actually achievable. This *bleeds* the windup out
+  rather than a static clamp or a conditional freeze — a long saturated rise no longer overshoots.
+  Upstream linorobot2 had an unbounded integral that "catapulted" on saturation.
 - **Right-wheel balance**: `motor2` PWM is scaled by `motor2_gain` (default `MOTOR2_GAIN = 1.000`).
   The feedforward + integral now carry the drivetrain asymmetry, so no per-wheel gain scaling is
   needed; the scalar is kept live-tunable for convenience.
