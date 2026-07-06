@@ -36,11 +36,23 @@ internals already cover each planned module, so they can be split out one at a t
   ("catapult" on saturation). The integral is now clamped to `i_limit = max_val / ki` so
   `ki · integral` cannot exceed the output range.
 - **`src/firmware.ino`** — the 50 Hz control loop (upstream) plus:
+  - a **velocity feedforward + PID** controller (the feedforward carries the holding PWM so the
+    closed-loop response is speed-independent), a **small-window velocity estimator** and an
+    **anti-stiction dither** for clean low-speed / docking motion;
   - **debug telemetry** publishers `/debug/left`, `/debug/right`, `/debug/pwm`
     (best-effort: target/measured rpm, encoder counts, PWM) — what made hardware diagnosis
     possible;
-  - an **open-loop test mode** subscriber `/debug/openloop` (fixed PWM on both motors, PID
-    bypassed) — used to prove the motors/encoders independently of the closed loop.
+  - an **open-loop test mode** subscriber `/debug/openloop` (bounded fixed PWM on both motors, PID
+    bypassed, gated by `ENABLE_POWERED_DEBUG`) — used to prove the motors/encoders independently of
+    the closed loop;
+  - **live tuning** `/debug/tune` (PID gains, right-wheel scale, feedforward, dither) and a
+    **runtime encoder ripple table** `/debug/enc_cal` (per-angle rpm correction loaded without a
+    reflash).
+
+> **Note:** the copies of `config/lino_base_config.h`, `lib/pid/pid.cpp`, and `src/firmware.ino` in
+> this overlay may lag the deployed robot's firmware. The documentation in [`docs/`](../../../docs/)
+> describes the current (feedforward + dither + runtime ripple-table) behaviour and is the reference
+> for the interface contract.
 
 ## Build & flash
 

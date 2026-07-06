@@ -31,6 +31,20 @@ openamr-platform-fw/
 └── tools/
 ```
 
+## Documentation
+
+Firmware documentation lives in [`docs/`](docs/):
+
+- Architecture — [control loop & motor control](docs/architecture/control-loop.md),
+  [debug & tuning interface](docs/architecture/debug-telemetry.md),
+  [encoder ripple calibration](docs/architecture/encoder-calibration.md)
+- [micro-ROS bringup](docs/bringup/micro-ros-bringup.md)
+- [build & flash (Teensy 4.0)](docs/flashing/build-and-flash.md)
+- [motion safety](docs/safety/motion-safety.md)
+- [troubleshooting](docs/troubleshooting/common-issues.md)
+
+The current firmware is a [Teensy 4.0 linorobot2 overlay](boards/teensy_4_0/linorobot2_overlay/README.md).
+
 ## Repository Boundaries
 
 Firmware belongs in this repository.
