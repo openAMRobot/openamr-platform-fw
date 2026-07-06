@@ -41,9 +41,10 @@
 // #define USE_QMC5883L_MAG
 // #define MAG_BIAS { 0, 0, 0 }
 
-#define K_P 0.6                             // P (tune 2026-06-18 : 0.3->0.6)
-#define K_I 0.35                            // I (tune 2026-06-18 : 0.15->0.35, supprime l erreur statique)
-#define K_D 0.15                            // D (tune 2026-06-18 : 0.25->0.15)
+#define K_P 2.000
+#define K_I 0.100
+#define K_D 0.100
+#define MOTOR2_GAIN 1.000    // closed-loop tuned (FF carries holding PWM; integral trims) 2026-06-29
 
 /*
 ROBOT ORIENTATION
@@ -64,7 +65,7 @@ ROBOT ORIENTATION
 #define COUNTS_PER_REV3 1024                // wheel3 encoder's no of ticks per rev
 #define COUNTS_PER_REV4 1024                // wheel4 encoder's no of ticks per rev
 #define WHEEL_DIAMETER 0.2                  // wheel's diameter in meters
-#define LR_WHEELS_DISTANCE 0.46             // distance between left and right wheels (mesuré 0.46 le 2026-06-19)
+#define LR_WHEELS_DISTANCE 0.46             // distance between left and right wheels
 #define PWM_BITS 10                          // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 3000                  // PWM Frequency
 

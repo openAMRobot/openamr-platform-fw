@@ -49,10 +49,10 @@ internals already cover each planned module, so they can be split out one at a t
     **runtime encoder ripple table** `/debug/enc_cal` (per-angle rpm correction loaded without a
     reflash).
 
-> **Note:** the copies of `config/lino_base_config.h`, `lib/pid/pid.cpp`, and `src/firmware.ino` in
-> this overlay may lag the deployed robot's firmware. The documentation in [`docs/`](../../../docs/)
-> describes the current (feedforward + dither + runtime ripple-table) behaviour and is the reference
-> for the interface contract.
+> The copies of `config/lino_base_config.h`, `lib/pid/pid.cpp`, and `src/firmware.ino` in this overlay
+> are the **deployed 2026-06-29 firmware** (feedforward + dither + runtime ripple-table). The
+> documentation in [`docs/`](../../../docs/) is the reference for the interface contract and matches
+> this code.
 
 ## Build & flash
 

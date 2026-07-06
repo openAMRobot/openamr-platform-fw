@@ -20,39 +20,45 @@ PID::PID(float min_val, float max_val, float kp, float ki, float kd):
     max_val_(max_val),
     kp_(kp),
     ki_(ki),
-    kd_(kd)
+    kd_(kd),
+    integral_(0.0),      // explicit init (was indeterminate) — Raj PR5
+    derivative_(0.0),
+    prev_error_(0.0)
 {
 }
 
 double PID::compute(float setpoint, float measured_value)
 {
-    double error;
-    double pid;
-
-    //setpoint is constrained between min and max to prevent pid from having too much error
-    error = setpoint - measured_value;
-    integral_ += error;
-
-    // anti-windup : borne l'integrale pour que le terme ki*integral
-    // ne puisse pas depasser la sortie max (evite le catapultage)
-    if (ki_ != 0.0)
-    {
-        double i_limit = max_val_ / ki_;
-        integral_ = constrain(integral_, -i_limit, i_limit);
-    }
-
+    double error = setpoint - measured_value;
     derivative_ = error - prev_error_;
 
-    if(setpoint == 0 && error == 0)
+    integral_ += error;                                          // tentative integrate
+
+    double pid = (kp_ * error) + (ki_ * integral_) + (kd_ * derivative_);
+
+    // Back-calculation anti-windup: if the output saturates, pull the excess straight back OUT of the
+    // integral so it only ever supplies what is actually achievable (ki*integral = limit - kp*e - kd*d).
+    // Unlike conditional integration (which merely FREEZES a too-large integral), this BLEEDS the windup
+    // out, so a long/saturated rise (e.g. a hard step to near-max speed) no longer overshoots.
+    if (pid > max_val_)
+    {
+        if (ki_ > 1e-6) integral_ -= (pid - max_val_) / ki_;
+        pid = max_val_;
+    }
+    else if (pid < min_val_)
+    {
+        if (ki_ > 1e-6) integral_ -= (pid - min_val_) / ki_;
+        pid = min_val_;
+    }
+
+    if (setpoint == 0 && error == 0)
     {
         integral_ = 0;
         derivative_ = 0;
     }
 
-    pid = (kp_ * error) + (ki_ * integral_) + (kd_ * derivative_);
     prev_error_ = error;
-
-    return constrain(pid, min_val_, max_val_);
+    return pid;
 }
 
 void PID::updateConstants(float kp, float ki, float kd)
@@ -60,4 +66,11 @@ void PID::updateConstants(float kp, float ki, float kd)
     kp_ = kp;
     ki_ = ki;
     kd_ = kd;
+}
+
+void PID::reset()
+{
+    integral_ = 0.0;
+    derivative_ = 0.0;
+    prev_error_ = 0.0;
 }
