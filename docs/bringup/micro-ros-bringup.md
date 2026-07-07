@@ -45,7 +45,7 @@ agent returns. Time is synchronised with the agent on connect so stamps are in R
 | `/cmd_vel` | in | `geometry_msgs/Twist` | reliable |
 | `/odom/unfiltered` | out | `nav_msgs/Odometry` | reliable |
 | `/imu/data_raw` | out | `sensor_msgs/Imu` | reliable |
-| `/imu/mag` | out | `sensor_msgs/MagneticField` | reliable |
+| `/imu/mag` | out | `sensor_msgs/MagneticField` | reliable | see note |
 | `/debug/left`, `/debug/right`, `/debug/pwm` | out | `geometry_msgs/Vector3` | **best-effort** |
 | `/debug/openloop` | in | `geometry_msgs/Vector3` | reliable |
 | `/debug/tune` | in | `geometry_msgs/Twist` | reliable |
@@ -53,6 +53,10 @@ agent returns. Time is synchronised with the agent on connect so stamps are in R
 
 - The firmware publishes **raw** IMU (`/imu/data_raw` + `/imu/mag`); the host Madgwick/EKF pipeline
   fuses them into the filtered `/imu/data` and `/odom`.
+- ⚠️ **No real magnetometer.** The board carries an **MPU6500**, driven through the MPU9250 driver
+  (WHO_AM_I workaround). The MPU6500 has **no magnetometer**, so `/imu/mag` is published for
+  message-shape compatibility but carries **no meaningful magnetic field** — do not fuse it as a
+  heading source. The host EKF should use the gyro/accel only (yaw from the gyro rate).
 - The `/debug/*` topics are covered in detail in
   [debug telemetry](../architecture/debug-telemetry.md).
 

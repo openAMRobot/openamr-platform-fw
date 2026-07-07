@@ -11,6 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// ---------------------------------------------------------------------------
+// MODIFIED by OpenAMRobot (2026) from the linorobot2 firmware.
+// Change: back-calculation anti-windup on the integral term.
+// This file remains licensed under Apache-2.0; see NOTICE.md and
+// LICENSE-Apache-2.0 at the repository root.
+// ---------------------------------------------------------------------------
 
 #include "Arduino.h"
 #include "pid.h"

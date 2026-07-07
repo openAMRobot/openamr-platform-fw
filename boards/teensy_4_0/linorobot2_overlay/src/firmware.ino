@@ -11,6 +11,15 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// ---------------------------------------------------------------------------
+// MODIFIED by OpenAMRobot (2026) from the linorobot2 firmware.
+// Changes: feedforward + dither, runtime encoder-ripple correction table,
+// /debug telemetry topics (/debug/tune, /debug/openloop, /debug/left,
+// /debug/right), bounded open-loop test mode, and the MPU6500 IMU workaround.
+// This file remains licensed under Apache-2.0; see NOTICE.md and
+// LICENSE-Apache-2.0 at the repository root.
+// ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include <micro_ros_platformio.h>
 #include <stdio.h>
@@ -81,9 +90,9 @@ rcl_publisher_t mag_publisher;
 rcl_subscription_t twist_subscriber;
 rcl_subscription_t openloop_subscriber;   // DEBUG: PWM boucle ouverte (test moteurs)
 
-// --- DEBUG: telemetrie par roue (Vector3, statique, best-effort) ---
-rcl_publisher_t debug_left_publisher;   // gauche/MOTOR1
-rcl_publisher_t debug_right_publisher;  // droite/MOTOR2
+// --- DEBUG: per-wheel telemetry (Vector3, static, best-effort) ---
+rcl_publisher_t debug_left_publisher;   // left/MOTOR1
+rcl_publisher_t debug_right_publisher;  // right/MOTOR2
 rcl_publisher_t debug_pwm_publisher;    // sortie PID (PWM)
 
 nav_msgs__msg__Odometry odom_msg;
@@ -92,9 +101,9 @@ sensor_msgs__msg__MagneticField mag_msg;
 geometry_msgs__msg__Twist twist_msg;
 
 // --- DEBUG: messages + valeurs transmises de moveBase() a publishData() ---
-geometry_msgs__msg__Vector3 debug_left_msg;   // x=rpm cible, y=rpm mesure, z=counts bruts
-geometry_msgs__msg__Vector3 debug_right_msg;  // idem droite
-geometry_msgs__msg__Vector3 debug_pwm_msg;    // x=pwm gauche, y=pwm droite
+geometry_msgs__msg__Vector3 debug_left_msg;   // x=target rpm, y=measured rpm, z=raw counts
+geometry_msgs__msg__Vector3 debug_right_msg;  // same for the right wheel
+geometry_msgs__msg__Vector3 debug_pwm_msg;    // x=pwm left, y=pwm right
 float debug_req_rpm1 = 0, debug_req_rpm2 = 0;
 float debug_cur_rpm1 = 0, debug_cur_rpm2 = 0;
 int32_t debug_counts1 = 0, debug_counts2 = 0;
@@ -701,15 +710,15 @@ void publishData()
 #endif
     RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
 
-    // --- DEBUG: telemetrie par roue ---
-    debug_left_msg.x = debug_req_rpm1;   // rpm cible gauche
-    debug_left_msg.y = debug_cur_rpm1;   // rpm mesure gauche
-    debug_left_msg.z = debug_counts1;    // counts bruts gauche
-    debug_right_msg.x = debug_req_rpm2;  // rpm cible droite
-    debug_right_msg.y = debug_cur_rpm2;  // rpm mesure droite
-    debug_right_msg.z = debug_counts2;   // counts bruts droite
-    debug_pwm_msg.x = debug_pwm1;        // pwm gauche
-    debug_pwm_msg.y = debug_pwm2;        // pwm droite
+    // --- DEBUG: per-wheel telemetry ---
+    debug_left_msg.x = debug_req_rpm1;   // target rpm left
+    debug_left_msg.y = debug_cur_rpm1;   // measured rpm left
+    debug_left_msg.z = debug_counts1;    // raw counts left
+    debug_right_msg.x = debug_req_rpm2;  // target rpm right
+    debug_right_msg.y = debug_cur_rpm2;  // measured rpm right
+    debug_right_msg.z = debug_counts2;   // raw counts right
+    debug_pwm_msg.x = debug_pwm1;        // pwm left
+    debug_pwm_msg.y = debug_pwm2;        // pwm right
     debug_pwm_msg.z = 0;
     RCSOFTCHECK(rcl_publish(&debug_left_publisher, &debug_left_msg, NULL));
     RCSOFTCHECK(rcl_publish(&debug_right_publisher, &debug_right_msg, NULL));

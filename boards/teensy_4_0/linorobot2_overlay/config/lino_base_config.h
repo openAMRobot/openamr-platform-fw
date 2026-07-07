@@ -11,6 +11,14 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// ---------------------------------------------------------------------------
+// MODIFIED by OpenAMRobot (2026) from the linorobot2 firmware.
+// Changes: this unit's pin map, PID gains (K_P 2.0 / K_I 0.1 / K_D 0.1),
+// MOTOR2_GAIN, measured drivetrain constants, and IMU/board selection.
+// This file remains licensed under Apache-2.0; see NOTICE.md and
+// LICENSE-Apache-2.0 at the repository root.
+// ---------------------------------------------------------------------------
 
 #ifndef LINO_BASE_CONFIG_H
 #define LINO_BASE_CONFIG_H
@@ -30,9 +38,11 @@
 
 //uncomment the IMU you're using
 // #define USE_GY85_IMU
-// #define USE_MPU6050_IMU   // la puce n'est PAS un vrai MPU6050 (WHO_AM_I=0x70), ce driver la rejette
+// #define USE_MPU6050_IMU   // the chip is NOT a real MPU6050 (WHO_AM_I=0x70); that driver rejects it
 // #define USE_MPU9150_IMU
-#define USE_MPU9250_IMU       // puce reelle = MPU6500 (WHO_AM_I 0x70 -> id 0x38), reconnue par le driver MPU9250
+#define USE_MPU9250_IMU       // actual chip = MPU6500 (WHO_AM_I 0x70 -> id 0x38), accepted by the MPU9250 driver.
+                              // NOTE: the MPU6500 has NO magnetometer (unlike a true MPU9250). /imu/mag is still
+                              // published for message-shape compatibility but carries no real magnetic field.
 // #define USE_QMI8658_IMU
 // #define USE_HMC5883L_MAG
 // #define USE_AK8963_MAG
@@ -70,8 +80,8 @@ ROBOT ORIENTATION
 #define PWM_FREQUENCY 3000                  // PWM Frequency
 
 // INVERT ENCODER COUNTS
-#define MOTOR1_ENCODER_INV true             // gauche
-#define MOTOR2_ENCODER_INV false            // droite
+#define MOTOR1_ENCODER_INV true             // left
+#define MOTOR2_ENCODER_INV false            // right
 #define MOTOR3_ENCODER_INV false
 #define MOTOR4_ENCODER_INV false
 
@@ -96,13 +106,13 @@ ROBOT ORIENTATION
 
 // MOTOR PINS
 #ifdef USE_GENERIC_2_IN_MOTOR_DRIVER
-  #define MOTOR1_PWM 1   // PWM gauche (pin 1 est PWM sur Teensy 4.x ; pin 21 ne l'est pas)
-  #define MOTOR1_IN_A 20 // FWD gauche
-  #define MOTOR1_IN_B 21 // REV gauche
+  #define MOTOR1_PWM 1   // PWM left (pin 1 is PWM-capable on Teensy 4.x; pin 21 is not)
+  #define MOTOR1_IN_A 20 // FWD left
+  #define MOTOR1_IN_B 21 // REV left
 
-  #define MOTOR2_PWM 5   // PWM droite
-  #define MOTOR2_IN_A 6  // FWD droite
-  #define MOTOR2_IN_B 8  // REV droite
+  #define MOTOR2_PWM 5   // PWM right
+  #define MOTOR2_IN_A 6  // FWD right
+  #define MOTOR2_IN_B 8  // REV right
 
   #define MOTOR3_PWM 22
   #define MOTOR3_IN_A 23
