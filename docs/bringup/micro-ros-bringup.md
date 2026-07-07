@@ -22,6 +22,14 @@ The micro-ROS transport topology is shown below.
 > - Show the topics crossing the bridge: IN to Teensy = /cmd_vel, /debug/openloop, /debug/tune, /debug/enc_cal; OUT from Teensy = /odom/unfiltered, /imu/data_raw, /imu/mag, /debug/left, /debug/right, /debug/pwm.
 > - On the host side, show the EKF/Madgwick consuming /imu/data_raw + /odom to produce filtered /imu/data + /odom, feeding Nav2.
 > Note the connection state machine: control loop only runs while the agent is connected; on disconnect the firmware fullStop()s.
+> 
+> STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
+> rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
+> sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (var(--...)).
+> Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
+> 3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
+> = red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
+> direction, English labels only, landscape orientation, no text overflow.
 > ```
 
 

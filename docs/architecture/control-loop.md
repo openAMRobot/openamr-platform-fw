@@ -56,6 +56,14 @@ The closed-loop control path is shown in the block diagram below.
 > - Sum -> PWM output (bounded) -> ZBLD driver -> BLDC motor -> wheel.
 > - Feedback: AS5040 encoder -> counts -> runtime ripple-correction table -> measured RPM -> back to the sum junction.
 > - Show the loop runs at 50 Hz (20 ms). Mark feedforward and anti-windup clearly as the additions over a plain PID.
+> 
+> STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
+> rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
+> sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (var(--...)).
+> Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
+> 3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
+> = red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
+> direction, English labels only, landscape orientation, no text overflow.
 > ```
 
 

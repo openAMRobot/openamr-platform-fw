@@ -63,6 +63,14 @@ The calibration workflow is shown below.
 > 4. It computes a correction table and pushes it over /debug/enc_cal (std_msgs/Float32MultiArray).
 > 5. The firmware loads the table at RUNTIME and applies it, phase-aligned per boot -> ripple drops to ~+/-4%.
 > Add a note: an incremental encoder loses phase at boot, so the table MUST be re-aligned every Teensy power-cycle (a compiled static table does not work).
+> 
+> STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
+> rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
+> sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (var(--...)).
+> Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
+> 3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
+> = red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
+> direction, English labels only, landscape orientation, no text overflow.
 > ```
 
 

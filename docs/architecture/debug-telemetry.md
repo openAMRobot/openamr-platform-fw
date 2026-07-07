@@ -19,6 +19,14 @@ The debug topic flow is shown below.
 > - Teensy -> host (telemetry, best-effort): /debug/left (x=target rpm, y=measured rpm, z=raw counts), /debug/right (same), /debug/pwm (x=pwm left, y=pwm right).
 > - Host -> Teensy (commands, reliable): /debug/openloop (raw PWM, gated by ENABLE_POWERED_DEBUG - mark it RED 'can move the motors'), /debug/tune (live PID/feedforward/dither gains), /debug/enc_cal (runtime ripple table).
 > Group by direction and colour commands vs telemetry differently.
+> 
+> STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
+> rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
+> sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (var(--...)).
+> Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
+> 3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
+> = red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
+> direction, English labels only, landscape orientation, no text overflow.
 > ```
 
 
