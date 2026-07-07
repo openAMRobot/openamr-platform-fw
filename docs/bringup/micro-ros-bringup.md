@@ -8,6 +8,23 @@ the LED status codes.
 
 ## Transport & agent
 
+The micro-ROS transport topology is shown below.
+
+> ### 📐 Diagram: micro-ROS node topology
+> *Figure - how the Teensy connects to the ROS 2 graph through the micro-ROS agent.*
+>
+> **Prompt to generate this diagram (paste to Claude):**
+> ```
+> Draw a node/transport topology diagram:
+> - Teensy 4.0 runs a micro-ROS CLIENT (the firmware node) over USB serial (115200).
+> - Host (Raspberry Pi 5) runs the micro-ROS AGENT (micro_ros_agent serial --dev /dev/ttyACM0).
+> - The agent bridges the Teensy into the ROS 2 graph (DDS = CycloneDDS).
+> - Show the topics crossing the bridge: IN to Teensy = /cmd_vel, /debug/openloop, /debug/tune, /debug/enc_cal; OUT from Teensy = /odom/unfiltered, /imu/data_raw, /imu/mag, /debug/left, /debug/right, /debug/pwm.
+> - On the host side, show the EKF/Madgwick consuming /imu/data_raw + /odom to produce filtered /imu/data + /odom, feeding Nav2.
+> Note the connection state machine: control loop only runs while the agent is connected; on disconnect the firmware fullStop()s.
+> ```
+
+
 - **USB serial** at **`BAUDRATE = 115200`** — this must match the agent exactly.
 - Start the agent on the host, pointing at the Teensy's serial device. A non-interactive shell
   does **not** source ROS, so source it and set the matching RMW/domain first (see the DDS note

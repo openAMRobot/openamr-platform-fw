@@ -49,6 +49,23 @@ current boot's encoder zero.
 
 ## Calibration workflow (host-side)
 
+The calibration workflow is shown below.
+
+> ### 📐 Diagram: Encoder ripple calibration workflow
+> *Figure - the per-boot host-side calibration that flattens the encoder ripple.*
+>
+> **Prompt to generate this diagram (paste to Claude):**
+> ```
+> Draw a workflow/flowchart for the per-boot encoder ripple calibration:
+> 1. Power-cycle the Teensy with the robot IMMOBILE (captures gyro bias).
+> 2. Wheels in the air; host runs align_enc_cal.py (~8 s) spinning each wheel at a fixed PWM.
+> 3. The script measures the per-position velocity ripple (~+/-40%) of the AS5040 (off-centre magnet).
+> 4. It computes a correction table and pushes it over /debug/enc_cal (std_msgs/Float32MultiArray).
+> 5. The firmware loads the table at RUNTIME and applies it, phase-aligned per boot -> ripple drops to ~+/-4%.
+> Add a note: an incremental encoder loses phase at boot, so the table MUST be re-aligned every Teensy power-cycle (a compiled static table does not work).
+> ```
+
+
 The **shape** of the ripple is fixed (it is the magnet geometry); only its **phase** moves per
 boot. So the shape is captured once as a reference, and each boot only re-aligns the phase:
 

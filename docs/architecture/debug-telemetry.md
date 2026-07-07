@@ -8,6 +8,20 @@ the single source of truth for the debug interface; other docs link here.
 
 ## Published telemetry (Teensy → host)
 
+The debug topic flow is shown below.
+
+> ### 📐 Diagram: Debug / telemetry topic map
+> *Figure - the /debug topics between host and Teensy, split by direction.*
+>
+> **Prompt to generate this diagram (paste to Claude):**
+> ```
+> Draw a simple two-column topic-flow diagram between HOST and TEENSY.
+> - Teensy -> host (telemetry, best-effort): /debug/left (x=target rpm, y=measured rpm, z=raw counts), /debug/right (same), /debug/pwm (x=pwm left, y=pwm right).
+> - Host -> Teensy (commands, reliable): /debug/openloop (raw PWM, gated by ENABLE_POWERED_DEBUG - mark it RED 'can move the motors'), /debug/tune (live PID/feedforward/dither gains), /debug/enc_cal (runtime ripple table).
+> Group by direction and colour commands vs telemetry differently.
+> ```
+
+
 All three are `geometry_msgs/msg/Vector3`, **BEST_EFFORT** QoS, published at the 50 Hz loop rate:
 
 | Topic | x | y | z |

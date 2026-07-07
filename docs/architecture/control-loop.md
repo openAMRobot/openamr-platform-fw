@@ -41,6 +41,24 @@ Odometry is integrated on **every** tick regardless of which path ran.
 
 ## Velocity controller (closed-loop path)
 
+The closed-loop control path is shown in the block diagram below.
+
+> ### 📐 Diagram: Motor control loop (per wheel)
+> *Figure - the 50 Hz closed-loop velocity controller with feedforward, from setpoint to PWM.*
+>
+> **Prompt to generate this diagram (paste to Claude):**
+> ```
+> Draw a control-loop block diagram (one wheel) matching this firmware:
+> - Input: target wheel velocity from /cmd_vel (via inverse kinematics).
+> - Sum junction: setpoint - measured RPM = error.
+> - PID block: K_P 2.0, K_I 0.1, K_D 0.1, with back-calculation anti-windup on the integral.
+> - Feedforward block (Kff) added to the PID output (feedforward + dither).
+> - Sum -> PWM output (bounded) -> ZBLD driver -> BLDC motor -> wheel.
+> - Feedback: AS5040 encoder -> counts -> runtime ripple-correction table -> measured RPM -> back to the sum junction.
+> - Show the loop runs at 50 Hz (20 ms). Mark feedforward and anti-windup clearly as the additions over a plain PID.
+> ```
+
+
 Per wheel, the commanded PWM is a **feedforward + PID** sum:
 
 ```
