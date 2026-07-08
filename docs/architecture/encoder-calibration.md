@@ -83,8 +83,10 @@ boot. So the shape is captured once as a reference, and each boot only re-aligns
 
 The **±40 % (LEFT) / ±4 % (RIGHT)** figures above are the **raw, un-calibrated** ripple — what you
 see when no table is loaded (unity passthrough) or before `align_enc_cal` has run this boot. After
-alignment the residual is **LEFT ±4 %, RIGHT ±3.5 %**, flat, instant, and it survives a reboot once
-re-aligned.
+alignment the residual is **boot-dependent** (the per-boot phase lock is never identical): a clean
+full recalibration lands **under ±5 %** on the LEFT, while a fast per-boot alignment can sit higher
+(**up to ~±11 %**) depending on how well the phase locked that boot. Either way it is flat, instant,
+far below the ±40 % raw, and it survives a reboot once re-aligned.
 
 ## The deployed fix (and the alternatives that were rejected)
 

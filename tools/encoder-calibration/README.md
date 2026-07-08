@@ -47,9 +47,11 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=0
 python3 align_enc_cal.py --arm 250
 ```
 
-Result: LEFT ripple drops from ±40 % to **±4 %**, instantly (no averaging, no lag), and it survives
-a *ROS* restart — but **not** a Teensy power-cycle, because the table lives in Teensy RAM. Re-run it
-after each power-on.
+Result: the LEFT ripple drops from ±40 % to a small residual — **boot-dependent** (the phase lock
+is never identical): a clean full recalibration lands under ±5 %, a fast per-boot alignment can sit
+higher (up to ~±11 %), either way far below the raw ±40 %, instantly (no averaging, no lag). It
+survives a *ROS* restart — but **not** a Teensy power-cycle, because the table lives in Teensy RAM.
+Re-run it after each power-on.
 
 ### 2. Full recalibration — only if the magnet is physically disturbed
 
