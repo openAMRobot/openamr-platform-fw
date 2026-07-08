@@ -51,11 +51,16 @@ prototyping, and development purposes.
 
 THIRD-PARTY / DERIVED CODE - Apache License 2.0
 
-Part of this repository is derived from the linorobot2 firmware
-(Copyright (c) 2021 Juan Miguel Jimeno), which is licensed under the
-Apache License, Version 2.0. The MIT license above applies to the
-ORIGINAL work authored by OpenAMRobot (documentation and the new overlay
-logic). It does NOT relicense the linorobot2-derived files.
+This repository is an OVERLAY (a derivative work) of the linorobot2
+firmware (Copyright (c) 2021 Juan Miguel Jimeno), which is licensed under
+the Apache License, Version 2.0. It is therefore DUAL-LICENSED:
+
+  * The DOCUMENTATION and any standalone original files authored by
+    OpenAMRobot are licensed MIT (the license above).
+  * The FIRMWARE OVERLAY FILES listed below - AND every OpenAMRobot
+    modification made *inside* them - are derivatives of linorobot2 and
+    REMAIN under the Apache License, Version 2.0. The MIT grant above does
+    NOT relicense them.
 
 The following files are modified derivatives of linorobot2 and REMAIN under
 the Apache License, Version 2.0:
