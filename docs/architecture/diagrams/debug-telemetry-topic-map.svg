@@ -1,0 +1,85 @@
+<svg width="1160" height="560" viewBox="0 0 1160 560" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif">
+
+  <!-- Full-canvas white background (first element) -->
+  <rect x="0" y="0" width="1160" height="560" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="580" y="42" text-anchor="middle" font-size="20" font-weight="700" fill="#1a1a1a">HOST &#8596; TEENSY &#8212; Debug Topic Flow</text>
+  <text x="580" y="64" text-anchor="middle" font-size="12.5" fill="#666666">Telemetry (best-effort) vs commands (reliable) over the debug link</text>
+
+  <!-- ===================== ENDPOINT BARS ===================== -->
+  <rect x="40" y="115" width="150" height="381" rx="14" ry="14" fill="#eef2f6" stroke="#555555" stroke-width="2"/>
+  <text x="115" y="300" text-anchor="middle" font-size="20" font-weight="700" fill="#1a1a1a">HOST</text>
+  <text x="115" y="324" text-anchor="middle" font-size="12" fill="#555555">PC &#183; ROS 2</text>
+
+  <rect x="970" y="115" width="150" height="381" rx="14" ry="14" fill="#eef2f6" stroke="#555555" stroke-width="2"/>
+  <text x="1045" y="300" text-anchor="middle" font-size="20" font-weight="700" fill="#1a1a1a">TEENSY</text>
+  <text x="1045" y="324" text-anchor="middle" font-size="12" fill="#555555">4.0 MCU</text>
+
+  <!-- ===================== GROUP 1 HEADER : TELEMETRY ===================== -->
+  <text x="580" y="102" text-anchor="middle" font-size="12" font-weight="700" fill="#777777">TELEMETRY &#8212; Teensy &#8594; Host &#8212; best-effort</text>
+
+  <!-- /debug/left  (cy=140) -->
+  <line x1="390" y1="140" x2="206" y2="140" stroke="#888888" stroke-width="2"/>
+  <polygon points="206,133 192,140 206,147" fill="#888888"/>
+  <line x1="770" y1="140" x2="954" y2="140" stroke="#888888" stroke-width="2"/>
+  <rect x="390" y="116" width="380" height="48" rx="10" ry="10" fill="#f7f7f7" stroke="#888888" stroke-width="1.5"/>
+  <text x="402" y="135" font-size="13" font-weight="700" fill="#1a1a1a" font-family="Consolas, 'Courier New', monospace">/debug/left</text>
+  <text x="402" y="154" font-size="11.5" fill="#444444">x = target rpm  &#183;  y = measured rpm  &#183;  z = raw counts</text>
+
+  <!-- /debug/right  (cy=196) -->
+  <line x1="390" y1="196" x2="206" y2="196" stroke="#888888" stroke-width="2"/>
+  <polygon points="206,189 192,196 206,203" fill="#888888"/>
+  <line x1="770" y1="196" x2="954" y2="196" stroke="#888888" stroke-width="2"/>
+  <rect x="390" y="172" width="380" height="48" rx="10" ry="10" fill="#f7f7f7" stroke="#888888" stroke-width="1.5"/>
+  <text x="402" y="191" font-size="13" font-weight="700" fill="#1a1a1a" font-family="Consolas, 'Courier New', monospace">/debug/right</text>
+  <text x="402" y="210" font-size="11.5" fill="#444444">x = target rpm  &#183;  y = measured rpm  &#183;  z = raw counts</text>
+
+  <!-- /debug/pwm  (cy=252) -->
+  <line x1="390" y1="252" x2="206" y2="252" stroke="#888888" stroke-width="2"/>
+  <polygon points="206,245 192,252 206,259" fill="#888888"/>
+  <line x1="770" y1="252" x2="954" y2="252" stroke="#888888" stroke-width="2"/>
+  <rect x="390" y="228" width="380" height="48" rx="10" ry="10" fill="#f7f7f7" stroke="#888888" stroke-width="1.5"/>
+  <text x="402" y="247" font-size="13" font-weight="700" fill="#1a1a1a" font-family="Consolas, 'Courier New', monospace">/debug/pwm</text>
+  <text x="402" y="266" font-size="11.5" fill="#444444">x = pwm left  &#183;  y = pwm right</text>
+
+  <!-- Divider -->
+  <line x1="200" y1="298" x2="960" y2="298" stroke="#e2e2e2" stroke-width="1"/>
+
+  <!-- ===================== GROUP 2 HEADER : COMMANDS ===================== -->
+  <text x="580" y="313" text-anchor="middle" font-size="12" font-weight="700" fill="#2e8b57">COMMANDS &#8212; Host &#8594; Teensy &#8212; reliable</text>
+
+  <!-- /debug/openloop  (cy=353) : RED, powered -->
+  <line x1="206" y1="353" x2="390" y2="353" stroke="#c0392b" stroke-width="2"/>
+  <line x1="770" y1="353" x2="954" y2="353" stroke="#c0392b" stroke-width="2"/>
+  <polygon points="954,346 968,353 954,360" fill="#c0392b"/>
+  <rect x="390" y="324" width="380" height="58" rx="10" ry="10" fill="#fdecea" stroke="#c0392b" stroke-width="2"/>
+  <text x="402" y="343" font-size="13" font-weight="700" fill="#c0392b" font-family="Consolas, 'Courier New', monospace">/debug/openloop</text>
+  <text x="402" y="360" font-size="11" fill="#333333">raw PWM  &#183;  gated by ENABLE_POWERED_DEBUG</text>
+  <text x="402" y="376" font-size="11" font-weight="700" fill="#c0392b">&#9888; CAN MOVE THE MOTORS</text>
+
+  <!-- /debug/tune  (cy=414) -->
+  <line x1="206" y1="414" x2="390" y2="414" stroke="#2e8b57" stroke-width="2"/>
+  <line x1="770" y1="414" x2="954" y2="414" stroke="#2e8b57" stroke-width="2"/>
+  <polygon points="954,407 968,414 954,421" fill="#2e8b57"/>
+  <rect x="390" y="390" width="380" height="48" rx="10" ry="10" fill="#eef7f1" stroke="#2e8b57" stroke-width="1.5"/>
+  <text x="402" y="409" font-size="13" font-weight="700" fill="#1a7a48" font-family="Consolas, 'Courier New', monospace">/debug/tune</text>
+  <text x="402" y="428" font-size="11.5" fill="#333333">live PID / feedforward / dither gains</text>
+
+  <!-- /debug/enc_cal  (cy=468) -->
+  <line x1="206" y1="468" x2="390" y2="468" stroke="#2e8b57" stroke-width="2"/>
+  <line x1="770" y1="468" x2="954" y2="468" stroke="#2e8b57" stroke-width="2"/>
+  <polygon points="954,461 968,468 954,475" fill="#2e8b57"/>
+  <rect x="390" y="444" width="380" height="48" rx="10" ry="10" fill="#eef7f1" stroke="#2e8b57" stroke-width="1.5"/>
+  <text x="402" y="463" font-size="13" font-weight="700" fill="#1a7a48" font-family="Consolas, 'Courier New', monospace">/debug/enc_cal</text>
+  <text x="402" y="482" font-size="11.5" fill="#333333">runtime ripple table</text>
+
+  <!-- ===================== LEGEND ===================== -->
+  <rect x="300" y="520" width="15" height="15" rx="3" ry="3" fill="#888888"/>
+  <text x="322" y="532" font-size="12" fill="#333333">Telemetry (best-effort)</text>
+  <rect x="500" y="520" width="15" height="15" rx="3" ry="3" fill="#2e8b57"/>
+  <text x="522" y="532" font-size="12" fill="#333333">Command (reliable)</text>
+  <rect x="680" y="520" width="15" height="15" rx="3" ry="3" fill="#c0392b"/>
+  <text x="702" y="532" font-size="12" fill="#333333">Powered &#8212; can move motors</text>
+
+</svg>

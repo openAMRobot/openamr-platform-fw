@@ -43,30 +43,7 @@ Odometry is integrated on **every** tick regardless of which path ran.
 
 The closed-loop control path is shown in the block diagram below.
 
-> 📐 **[Diagram: Motor control loop (per wheel)]** — *placeholder; not generated yet (prompt in the page source).*
-
-<!-- DIAGRAM PLACEHOLDER (motor-control-loop-per-wheel) — TO PLACE THE DIAGRAM, replace the blockquote line
-above AND this whole comment with a single image line:
-    ![Figure - the 50 Hz closed-loop velocity controller with feedforward, from setpoint to PWM.](diagrams/motor-control-loop-per-wheel.svg)
-
-Generation prompt (paste to Claude):
-Draw a control-loop block diagram (one wheel) matching this firmware:
-- Input: target wheel velocity from /cmd_vel (via inverse kinematics).
-- Sum junction: setpoint - measured RPM = error.
-- PID block: K_P 2.0, K_I 0.1, K_D 0.1, with back-calculation anti-windup on the integral.
-- Feedforward block (Kff) added to the PID output (feedforward + dither).
-- Sum -> PWM output (bounded) -> ZBLD driver -> BLDC motor -> wheel.
-- Feedback: AS5040 encoder -> counts -> runtime ripple-correction table -> measured RPM -> back to the sum junction.
-- Show the loop runs at 50 Hz (20 ms). Mark feedforward and anti-windup clearly as the additions over a plain PID.
-
-STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
-rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
-sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (CSS variables).
-Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
-3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
-= red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
-direction, English labels only, landscape orientation, no text overflow.
--->
+![The 50 Hz per-wheel velocity controller: setpoint from /cmd_vel, error into a PID (Kp 2.0/Ki 0.1/Kd 0.1) with back-calculation anti-windup, plus feedforward + dither, to bounded PWM -> ZBLD driver -> BLDC motor; AS5040 encoder counts pass a runtime ripple table before becoming measured RPM](diagrams/motor-control-loop-per-wheel.svg)
 
 
 Per wheel, the commanded PWM is a **feedforward + PID** sum:
