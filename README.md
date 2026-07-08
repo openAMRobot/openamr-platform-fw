@@ -61,15 +61,17 @@ The overlay is applied **on top of a linorobot2 firmware checkout**. For a repro
 you must pin the exact upstream version:
 
 ```bash
-git clone https://github.com/linorobot/linorobot2.git
-cd linorobot2
-git checkout <PIN — TODO: record the exact linorobot2 commit/tag this overlay was forked from>
+# The microcontroller firmware lives in linorobot2_hardware (not the linorobot2 ROS 2 repo).
+git clone https://github.com/linorobot/linorobot2_hardware.git
+cd linorobot2_hardware
+git checkout aaf9d59cd18c0cd1905be6fdae9ea5c99961a766   # branch jazzy, 2026-04-30 (see NOTICE.md)
 # then copy the three overlay files from
-# boards/teensy_4_0/linorobot2_overlay/ over the matching linorobot2 files.
+# boards/teensy_4_0/linorobot2_overlay/ over the matching linorobot2_hardware files.
 ```
 
-> **TODO (release blocker):** the exact linorobot2 commit is not yet pinned. Record it here and
-> in [`NOTICE.md`](NOTICE.md) before release — see the overlay
+> **Pinned upstream:** `linorobot2_hardware`, branch `jazzy`, commit
+> `aaf9d59cd18c0cd1905be6fdae9ea5c99961a766` (2026-04-30). The full provenance — and how it was
+> verified against the upstream history — is in [`NOTICE.md`](NOTICE.md); see also the overlay
 > [README](boards/teensy_4_0/linorobot2_overlay/README.md).
 
 ### Post-flash verification checklist
@@ -86,16 +88,17 @@ After flashing, with the robot **on blocks / wheels clear of the ground**:
 5. **Low-speed `/cmd_vel`** — publish a small `/cmd_vel` and confirm both wheels turn the right
    way at similar rates. Re-run the encoder calibration afterwards (below).
 
-### Encoder ripple calibration — external dependency
+### Encoder ripple calibration — host-side tools (vendored)
 
-The encoder ripple correction table is **re-aligned per boot** by a host-side script that is
-**not in this repository** — it lives in the OpenAMR working/tooling repo:
+The encoder ripple correction table is **re-aligned per boot** by host-side scripts, vendored in
+this repo under [`tools/encoder-calibration/`](tools/encoder-calibration/):
 
-- `align_enc_cal.py` (run wheels-in-the-air, ~8 s) and `encoder_ref_table.json`.
+- `align_enc_cal.py` (run wheels-in-the-air, ~8 s) + `encoder_ref_table.json` — the per-boot
+  alignment ritual, run after **every Teensy power-cycle** (an incremental encoder loses phase at
+  boot).
 
-These must be run after **every Teensy power-cycle** (an incremental encoder loses phase at
-boot). See [encoder calibration](docs/architecture/encoder-calibration.md). **Before release,
-link or vendor these scripts** so a downstream user can obtain them.
+See [encoder calibration](docs/architecture/encoder-calibration.md) for the engineering story and
+[`tools/encoder-calibration/README.md`](tools/encoder-calibration/README.md) for the full workflow.
 
 ---
 
@@ -109,10 +112,11 @@ openamr-platform-fw/
 │       ├── lib/pid/pid.cpp              (Apache-2.0, modified from linorobot2)
 │       └── config/lino_base_config.h    (Apache-2.0, modified from linorobot2)
 ├── docs/                                ← firmware documentation
+├── tools/
+│   └── encoder-calibration/             ← host-side ripple-calibration scripts (per-boot align)
 ├── firmware/                            ← PLACEHOLDER (planned modular decomposition)
 ├── configs/                             ← PLACEHOLDER (planned per-module configs)
-├── tests/                               ← PLACEHOLDER
-└── tools/                               ← PLACEHOLDER
+└── tests/                               ← PLACEHOLDER
 ```
 
 ## Documentation

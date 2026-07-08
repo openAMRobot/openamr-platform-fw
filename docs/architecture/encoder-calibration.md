@@ -79,18 +79,21 @@ direction, English labels only, landscape orientation, no text overflow.
 The **shape** of the ripple is fixed (it is the magnet geometry); only its **phase** moves per
 boot. So the shape is captured once as a reference, and each boot only re-aligns the phase:
 
-1. A reference table (fixed shape) lives in the host tooling (`scripts/encoder_ref_table.json` in
-   the separate **`openamr`** working repo — the alignment scripts are host-side and are **not**
-   part of this firmware repo).
+1. A reference table (fixed shape) lives in the host tooling
+   ([`tools/encoder-calibration/encoder_ref_table.json`](../../tools/encoder-calibration/)). The
+   alignment scripts are host-side (they run on the Pi / a dev PC, not on the Teensy) and are
+   vendored in this repo under [`tools/encoder-calibration/`](../../tools/encoder-calibration/).
 2. After **every Teensy power-cycle**, a short alignment run (~6–8 s) spins the wheels, measures
    the raw per-angle ripple, correlates it sub-bin (~1°) against the reference to find the current
    phase, rolls the reference to that phase, and publishes the 72-float table on `/debug/enc_cal`.
    Run it from the host, wheels off the ground, with the micro-ROS agent up and 24 V power on:
    ```bash
-   cd ~/Documents/openamr && source /opt/ros/jazzy/setup.bash \
+   cd tools/encoder-calibration && source /opt/ros/jazzy/setup.bash \
      && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=0 \
-     && python3 scripts/align_enc_cal.py --arm 250
+     && python3 align_enc_cal.py --arm 250
    ```
+   (See [`tools/encoder-calibration/README.md`](../../tools/encoder-calibration/README.md) for the
+   full-recalibration workflow used when the magnet is physically disturbed.)
 3. The table lives in Teensy RAM, so it must be re-sent after a power-cycle — a ROS restart on the
    host does **not** require re-alignment, but a Teensy reboot does.
 

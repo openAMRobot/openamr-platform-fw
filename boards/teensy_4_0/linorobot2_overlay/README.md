@@ -61,7 +61,9 @@ internals already cover each planned module, so they can be split out one at a t
 
 ## Build & flash
 
-The overlay needs the linorobot2 firmware base. In a linorobot2 firmware checkout
+The overlay needs the linorobot2 firmware base — specifically
+[`linorobot2_hardware`](https://github.com/linorobot/linorobot2_hardware) branch `jazzy`,
+commit `aaf9d59` (2026-04-30; pinned in [`NOTICE.md`](../../../NOTICE.md)). In that checkout
 (PlatformIO), copy these files over the matching paths, then build/flash for the Teensy 4.0
 target. The published topics are `/cmd_vel` (in), `/odom/unfiltered`, `/imu/data_raw`, `/imu/mag`,
 and the `/debug/*` topics above; the host bridges them with the micro-ROS agent. (The firmware

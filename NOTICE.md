@@ -24,11 +24,17 @@ and release notes where applicable. Contributions are accepted under the terms i
 This firmware is built as an **overlay on top of the linorobot2 firmware**.
 
 - **Upstream project:** linorobot2 — https://github.com/linorobot/linorobot2
+- **Upstream firmware repo:** linorobot2_hardware — https://github.com/linorobot/linorobot2_hardware
+  (the microcontroller firmware — `firmware.ino`, `lino_base_config.h`, `pid.cpp` — lives here)
 - **Upstream author / copyright:** Copyright (c) 2021 Juan Miguel Jimeno
 - **Upstream license:** Apache License, Version 2.0
-- **Pinned upstream version:** `TODO: pin the exact linorobot2 commit/tag this overlay was
-  forked from` (the overlay was copied from a linorobot2 firmware checkout and modified;
-  record the exact commit here before release — see the overlay README).
+- **Pinned upstream version:** branch `jazzy`, commit
+  `aaf9d59cd18c0cd1905be6fdae9ea5c99961a766` (2026-04-30) — the HEAD of `linorobot2_hardware`
+  this overlay was created from. The three derived source files were last modified upstream at
+  commit `36ffb76d9a1e0e6d9b31710416ef3bad5b64631f` (2026-04-10, "Add support for ESP32 Wifi")
+  and are unchanged through the pinned HEAD. (Verified by diffing the overlay files against the
+  full upstream history: the only differences are this robot's own configuration — pins, PID
+  gains, geometry, IMU selection — and the OpenAMRobot additions listed below.)
 
 ### Files derived from linorobot2 (remain Apache-2.0, modified by OpenAMRobot)
 
