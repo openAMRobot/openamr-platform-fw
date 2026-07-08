@@ -51,29 +51,7 @@ current boot's encoder zero.
 
 The calibration workflow is shown below.
 
-> 📐 **[Diagram: Encoder ripple calibration workflow]** — *placeholder; not generated yet (prompt in the page source).*
-
-<!-- DIAGRAM PLACEHOLDER (encoder-ripple-calibration-workflow) — TO PLACE THE DIAGRAM, replace the blockquote line
-above AND this whole comment with a single image line:
-    ![Figure - the per-boot host-side calibration that flattens the encoder ripple.](diagrams/encoder-ripple-calibration-workflow.svg)
-
-Generation prompt (paste to Claude):
-Draw a workflow/flowchart for the per-boot encoder ripple calibration:
-1. Power-cycle the Teensy with the robot IMMOBILE (captures gyro bias).
-2. Wheels in the air; host runs align_enc_cal.py (~8 s) spinning each wheel at a fixed PWM.
-3. The script measures the per-position velocity ripple (~+/-40%) of the AS5040 (off-centre magnet).
-4. It computes a correction table and pushes it over /debug/enc_cal (std_msgs/Float32MultiArray).
-5. The firmware loads the table at RUNTIME and applies it, phase-aligned per boot -> ripple drops to ~+/-4%.
-Add a note: an incremental encoder loses phase at boot, so the table MUST be re-aligned every Teensy power-cycle (a compiled static table does not work).
-
-STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
-rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
-sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (CSS variables).
-Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
-3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
-= red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
-direction, English labels only, landscape orientation, no text overflow.
--->
+![Per-boot encoder ripple calibration workflow: (1) power-cycle the Teensy immobile, (2) spin the wheels in the air with align_enc_cal.py (~8 s), (3) measure the AS5040 per-position ripple (~±40%), (4) compute and push the correction table over /debug/enc_cal, (5) the firmware loads it at runtime phase-aligned per boot → ripple drops to ~±4%. A compiled static table does not work because the incremental encoder loses phase at boot](diagrams/encoder-ripple-calibration-workflow.svg)
 
 
 The **shape** of the ripple is fixed (it is the magnet geometry); only its **phase** moves per

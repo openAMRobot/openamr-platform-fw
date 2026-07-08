@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="570" viewBox="0 0 1360 570" font-family="'Segoe UI',Arial,sans-serif">
+  <defs>
+    <marker id="ab" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- FULL-CANVAS WHITE BACKGROUND -->
+  <rect x="0" y="0" width="1360" height="570" fill="#ffffff"/>
+
+  <text x="40" y="40" font-weight="700" font-size="20px" fill="#1a1a1a">Per-boot encoder ripple calibration — workflow</text>
+  <text x="40" y="62" font-weight="400" font-size="12.5px" fill="#1a1a1a">Runtime table push phase-aligns the AS5040 on every boot · per-position velocity ripple ~±40% → ~±4%</text>
+
+  <!-- ===== STEP BOXES ===== -->
+  <!-- Step 1 -->
+  <rect x="40" y="130" width="210" height="130" rx="10" fill="#f4f8fd" stroke="#2c6fbb" stroke-width="1.6"/>
+  <text x="145" y="166" text-anchor="middle" font-weight="700" font-size="12.5px" fill="#1a1a1a">1 · Power-cycle Teensy</text>
+  <text x="145" y="190" text-anchor="middle" font-size="11px" fill="#1a1a1a">robot held <tspan font-weight="700">IMMOBILE</tspan></text>
+  <text x="145" y="212" text-anchor="middle" font-size="11px" fill="#1a1a1a">captures gyro bias</text>
+  <!-- Step 2 -->
+  <rect x="310" y="130" width="210" height="130" rx="10" fill="#f4f8fd" stroke="#2c6fbb" stroke-width="1.6"/>
+  <text x="415" y="166" text-anchor="middle" font-weight="700" font-size="12.5px" fill="#1a1a1a">2 · Spin wheels (in air)</text>
+  <text x="415" y="190" text-anchor="middle" font-size="11px" fill="#1a1a1a">align_enc_cal.py (~8 s)</text>
+  <text x="415" y="212" text-anchor="middle" font-size="11px" fill="#1a1a1a">fixed PWM per wheel</text>
+  <!-- Step 3 -->
+  <rect x="580" y="130" width="210" height="130" rx="10" fill="#f4f8fd" stroke="#2c6fbb" stroke-width="1.6"/>
+  <text x="685" y="166" text-anchor="middle" font-weight="700" font-size="12.5px" fill="#1a1a1a">3 · Measure ripple</text>
+  <text x="685" y="190" text-anchor="middle" font-size="11px" fill="#1a1a1a">per-position <tspan font-weight="700" fill="#c0392b">~±40%</tspan></text>
+  <text x="685" y="212" text-anchor="middle" font-size="11px" fill="#1a1a1a">AS5040 off-centre magnet</text>
+  <!-- Step 4 -->
+  <rect x="850" y="130" width="210" height="130" rx="10" fill="#f4f8fd" stroke="#2c6fbb" stroke-width="1.6"/>
+  <text x="955" y="166" text-anchor="middle" font-weight="700" font-size="12.5px" fill="#1a1a1a">4 · Compute + push table</text>
+  <text x="955" y="190" text-anchor="middle" font-size="11px" fill="#1a1a1a">over /debug/enc_cal</text>
+  <text x="955" y="212" text-anchor="middle" font-size="11px" fill="#1a1a1a">std_msgs/Float32MultiArray</text>
+  <!-- Step 5 -->
+  <rect x="1120" y="130" width="210" height="130" rx="10" fill="#eefaf3" stroke="#2e8b57" stroke-width="1.8"/>
+  <text x="1225" y="166" text-anchor="middle" font-weight="700" font-size="12.5px" fill="#1a1a1a">5 · Load table (runtime)</text>
+  <text x="1225" y="190" text-anchor="middle" font-size="11px" fill="#1a1a1a">phase-aligned per boot</text>
+  <text x="1225" y="212" text-anchor="middle" font-size="11px" fill="#1a1a1a">ripple → <tspan font-weight="700" fill="#2e8b57">~±4%</tspan></text>
+
+  <!-- step number circles straddling top edge -->
+  <circle cx="145" cy="130" r="13" fill="#2c6fbb"/><text x="145" y="134" text-anchor="middle" font-weight="700" font-size="12px" fill="#ffffff">1</text>
+  <circle cx="415" cy="130" r="13" fill="#2c6fbb"/><text x="415" y="134" text-anchor="middle" font-weight="700" font-size="12px" fill="#ffffff">2</text>
+  <circle cx="685" cy="130" r="13" fill="#2c6fbb"/><text x="685" y="134" text-anchor="middle" font-weight="700" font-size="12px" fill="#ffffff">3</text>
+  <circle cx="955" cy="130" r="13" fill="#2c6fbb"/><text x="955" y="134" text-anchor="middle" font-weight="700" font-size="12px" fill="#ffffff">4</text>
+  <circle cx="1225" cy="130" r="13" fill="#2e8b57"/><text x="1225" y="134" text-anchor="middle" font-weight="700" font-size="12px" fill="#ffffff">5</text>
+
+  <!-- ===== FLOW ARROWS ===== -->
+  <line x1="250" y1="195" x2="310" y2="195" stroke="#2c6fbb" stroke-width="2" marker-end="url(#ab)"/>
+  <text x="280" y="188" text-anchor="middle" font-size="10.5px" fill="#2c6fbb">wheels up</text>
+  <line x1="520" y1="195" x2="580" y2="195" stroke="#2c6fbb" stroke-width="2" marker-end="url(#ab)"/>
+  <text x="550" y="188" text-anchor="middle" font-size="10.5px" fill="#2c6fbb">measure</text>
+  <line x1="790" y1="195" x2="850" y2="195" stroke="#2c6fbb" stroke-width="2" marker-end="url(#ab)"/>
+  <text x="820" y="188" text-anchor="middle" font-size="10.5px" fill="#2c6fbb">compute</text>
+  <line x1="1060" y1="195" x2="1120" y2="195" stroke="#888888" stroke-width="2" marker-end="url(#ab)"/>
+  <text x="1090" y="188" text-anchor="middle" font-size="10.5px" fill="#888888">push</text>
+
+  <!-- ===== PER-BOOT LOOP-BACK ===== -->
+  <polyline points="1225,260 1225,300 145,300 145,260" fill="none" stroke="#c0392b" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#ab)"/>
+  <text x="685" y="293" text-anchor="middle" font-weight="700" font-size="11px" fill="#c0392b">re-run on every Teensy power-cycle</text>
+
+  <!-- ===== WARNING NOTE ===== -->
+  <rect x="40" y="330" width="1290" height="100" rx="8" fill="#fdf2f0" stroke="#c0392b" stroke-width="1.8"/>
+  <text x="56" y="354" font-weight="700" font-size="13px" fill="#c0392b">Why this must run on every boot — a compiled static table does NOT work</text>
+  <text x="56" y="376" font-size="11.5px" fill="#1a1a1a">In incremental (A/B quadrature) mode the AS5040 has no absolute zero at power-up: the phase index lands wherever the wheel</text>
+  <text x="56" y="395" font-size="11.5px" fill="#1a1a1a">happened to stop. A table baked into firmware will therefore be shifted relative to the real wheel position and will not line up.</text>
+  <text x="56" y="414" font-size="11.5px" fill="#1a1a1a">The correction table must be measured and phase-aligned fresh on each Teensy power-cycle, then loaded at runtime.</text>
+
+  <!-- ===== LEGEND ===== -->
+  <rect x="40" y="452" width="800" height="96" rx="8" fill="#ffffff" stroke="#bbbbbb" stroke-width="1.3"/>
+  <text x="56" y="476" font-weight="700" font-size="12.5px" fill="#1a1a1a">Colour legend</text>
+  <line x1="56" y1="496" x2="82" y2="496" stroke="#2c6fbb" stroke-width="3"/>
+  <text x="90" y="500" font-size="11.5px" fill="#1a1a1a">process step (host / firmware)</text>
+  <line x1="56" y1="520" x2="82" y2="520" stroke="#888888" stroke-width="3"/>
+  <text x="90" y="524" font-size="11.5px" fill="#1a1a1a">ROS topic / data push (/debug/enc_cal)</text>
+  <line x1="440" y1="496" x2="466" y2="496" stroke="#2e8b57" stroke-width="3"/>
+  <text x="474" y="500" font-size="11.5px" fill="#1a1a1a">successful outcome</text>
+  <line x1="440" y1="520" x2="466" y2="520" stroke="#c0392b" stroke-width="3" stroke-dasharray="6 4"/>
+  <text x="474" y="524" font-size="11.5px" fill="#1a1a1a">warning / mandatory per-boot step</text>
+
+  <!-- ===== OUTCOME BADGE ===== -->
+  <rect x="870" y="452" width="460" height="96" rx="8" fill="#eefaf3" stroke="#2e8b57" stroke-width="1.6"/>
+  <text x="886" y="476" font-weight="700" font-size="12.5px" fill="#2e8b57">Outcome</text>
+  <text x="886" y="500" font-size="12px" fill="#1a1a1a">per-position velocity ripple  <tspan font-weight="700" fill="#c0392b">~±40%</tspan>  &#8594;  <tspan font-weight="700" fill="#2e8b57">~±4%</tspan></text>
+  <text x="886" y="522" font-size="11.5px" fill="#1a1a1a">after per-boot, phase-aligned runtime correction</text>
+</svg>
