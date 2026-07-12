@@ -10,6 +10,13 @@ overlay](boards/teensy_4_0/linorobot2_overlay/README.md)** — an overlay on top
 `firmware/` and `configs/` directories are placeholders for a planned decomposition; the
 overlay is what runs on the robot today.
 
+> [!NOTE]
+> This repository is part of the **OpenAMRobot vX.X.X** release.
+>
+> Download the complete product release (Hardware + Software + Firmware + UI + Documentation) here:
+>
+> **https://github.com/openAMRobot/openamrobot-release/releases/latest**
+
 📖 **[README](README.md)** ·
 🏗️ **[Control loop](docs/architecture/control-loop.md)** ·
 🔧 **[Debug/tuning interface](docs/architecture/debug-telemetry.md)** ·
