@@ -2,26 +2,26 @@
 * @BotshareAI @openAMRobot/openamrobot2-0_leads
 
 # Firmware
-/firmware/ @BotshareAI
+/firmware/ @BotshareAI @openAMRobot/openamrobot2-0_leads
 
 # Board support
-/boards/ @BotshareAI
+/boards/ @BotshareAI @openAMRobot/openamrobot2-0_leads
 
 # Configurations
-/configs/ @BotshareAI
+/configs/ @BotshareAI @openAMRobot/openamrobot2-0_leads
 
 # Documentation
-/docs/ @BotshareAI
+/docs/ @BotshareAI @openAMRobot/openamrobot2-0_leads
 
 # Tests and tools
-/tests/ @BotshareAI
-/tools/ @BotshareAI
+/tests/ @BotshareAI @openAMRobot/openamrobot2-0_leads
+/tools/ @BotshareAI @openAMRobot/openamrobot2-0_leads
 
 # Root governance files
-/README.md @BotshareAI
-/LICENSE @BotshareAI
-/CONTRIBUTING.md @BotshareAI
-/SECURITY.md @BotshareAI
-/NOTICE.md @BotshareAI
-/AUTHORS.md @BotshareAI
-/CHANGELOG.md @BotshareAI
+/README.md @BotshareAI @openAMRobot/openamrobot2-0_leads
+/LICENSE @BotshareAI @openAMRobot/openamrobot2-0_leads
+/CONTRIBUTING.md @BotshareAI @openAMRobot/openamrobot2-0_leads
+/SECURITY.md @BotshareAI @openAMRobot/openamrobot2-0_leads
+/NOTICE.md @BotshareAI @openAMRobot/openamrobot2-0_leads
+/AUTHORS.md @BotshareAI @openAMRobot/openamrobot2-0_leads
+/CHANGELOG.md @BotshareAI @openAMRobot/openamrobot2-0_leads
