@@ -1,4 +1,4 @@
-# OpenAMR Platform Firmware
+# OpenAMRobot Platform Firmware
 
 Low-level motor-control firmware for the **OpenAMRobot** mobile base: micro-ROS motor
 control, encoder odometry, IMU integration, and a `/debug` telemetry/tuning contract, running
