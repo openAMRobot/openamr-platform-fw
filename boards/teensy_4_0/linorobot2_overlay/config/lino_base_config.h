@@ -225,7 +225,7 @@ ROBOT ORIENTATION
 // #define BATTERY_CAP 2.0  // battery capacity Ah
 // #define BATTERY_MIN 9.0  // battery minimal voltage
 // #define BATTERY_MAX 12.6 // battery maximum voltage
-// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04; unused upstream linorobot2 leftover; the LiDAR is driven from the Jetson
+// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04; unused upstream linorobot2 leftover; no ultrasonic sensor on the Gate A unit; the 2.0 ultrasonic sensors are MB7060 on the STM32 (see docs/architecture/base-controller-2-0-io.md)
 // #define ECHO_PIN 32
 // #define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 30 // Sec
