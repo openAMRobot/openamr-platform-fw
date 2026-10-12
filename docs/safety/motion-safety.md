@@ -35,7 +35,7 @@ See [debug telemetry](../architecture/debug-telemetry.md) for the full interface
 - IMU init failure is treated as **fatal**: the firmware blinks the LED and does not run the
   control loop (it never silently drives with a dead IMU). See
   [micro-ROS bringup](../bringup/micro-ros-bringup.md) for the LED blink codes.
-  - Note: the board is an **MPU6500 (no magnetometer)** driven via the MPU9250 driver. The
+  - Note: the board is an **MPU6500 (no magnetometer)** (Gate A unit; the 2.0 IMU is the ICM-42688-P) driven via the MPU9250 driver. The
     magnetometer path is not a real sensor here — treat a "magnetometer init" blink code as
     informational, not a safety stop, and do not use `/imu/mag` as a heading source.
 

@@ -58,7 +58,7 @@ agent returns. Time is synchronised with the agent on connect so stamps are in R
 
 - The firmware publishes **raw** IMU (`/imu/data_raw` + `/imu/mag`); the host Madgwick/EKF pipeline
   fuses them into the filtered `/imu/data` and `/odom`.
-- ⚠️ **No real magnetometer.** The board carries an **MPU6500**, driven through the MPU9250 driver
+- ⚠️ **No real magnetometer.** The board carries an **MPU6500** (Gate A unit; the 2.0 IMU is the ICM-42688-P), driven through the MPU9250 driver
   (WHO_AM_I workaround). The MPU6500 has **no magnetometer**, so `/imu/mag` is published for
   message-shape compatibility but carries **no meaningful magnetic field** — do not fuse it as a
   heading source. The host EKF should use the gyro/accel only (yaw from the gyro rate).
@@ -67,7 +67,7 @@ agent returns. Time is synchronised with the agent on connect so stamps are in R
 
 ## IMU note
 
-The config enables `USE_MPU9250_IMU`, but the physical chip is an **MPU-6500** (`WHO_AM_I 0x70`).
+The config enables `USE_MPU9250_IMU`, but the physical chip is an **MPU-6500** (`WHO_AM_I 0x70`; Gate A unit; the 2.0 IMU is the ICM-42688-P).
 The MPU9250 driver recognises it; the MPU6050 driver rejects it. IMU init failure is fatal (see LED
 codes below).
 

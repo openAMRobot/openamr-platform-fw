@@ -23,7 +23,7 @@ internals already cover each planned module, so they can be split out one at a t
 | `sensor_bridge` | linorobot2 IMU read (MPU-6500) → `/imu/data_raw` + `/imu/mag`; wheel odometry → `/odom/unfiltered` | ✅ covered |
 | `safety_io` | 200 ms `/cmd_vel` **watchdog** (motors stop if commands stop) | 🟡 partial (no HW E-stop / safety_io) |
 | `battery_monitor` | — | ⏳ not implemented (no voltage telemetry yet) |
-| communication bridge | micro-ROS over USB serial (115200), agent on the host (`openamr-platform-sw/openamrobot_drivers`) | ✅ covered |
+| communication bridge | micro-ROS over USB serial (115200), agent on the host (`openamr-platform-sw/openamrobot_drivers`); Gate A unit (existing robot, v0.0.1); on 2.0 the STM32H723ZG links to the Jetson over Ethernet, micro-ROS over UDP | ✅ covered |
 
 ## My changes vs upstream linorobot2
 

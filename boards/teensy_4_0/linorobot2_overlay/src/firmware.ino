@@ -17,6 +17,7 @@
 // Changes: feedforward + dither, runtime encoder-ripple correction table,
 // /debug telemetry topics (/debug/tune, /debug/openloop, /debug/left,
 // /debug/right), bounded open-loop test mode, and the MPU6500 IMU workaround.
+// 2026-10-12: Gate A label comment added (comment only, no behaviour change).
 // This file remains licensed under Apache-2.0; see NOTICE.md and
 // LICENSE-Apache-2.0 at the repository root.
 // ---------------------------------------------------------------------------
@@ -399,6 +400,7 @@ bool createEntities()
 #ifndef USE_FAKE_MAG
         "imu/data_raw"
 #else
+        // not built in this configuration; firmware publishes /imu/data_raw, the host filter owns /imu/data (decisions.yaml IMU-TOPIC-OWNERSHIP)
         "imu/data"
 #endif
     ));

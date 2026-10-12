@@ -16,6 +16,7 @@
 // MODIFIED by OpenAMRobot (2026) from the linorobot2 firmware.
 // Changes: this unit's pin map, PID gains (K_P 2.0 / K_I 0.1 / K_D 0.1),
 // MOTOR2_GAIN, measured drivetrain constants, and IMU/board selection.
+// 2026-10-12: Gate A label comments added (comments only, no value change).
 // This file remains licensed under Apache-2.0; see NOTICE.md and
 // LICENSE-Apache-2.0 at the repository root.
 // ---------------------------------------------------------------------------
@@ -75,7 +76,7 @@ ROBOT ORIENTATION
 #define COUNTS_PER_REV3 1024                // wheel3 encoder's no of ticks per rev
 #define COUNTS_PER_REV4 1024                // wheel4 encoder's no of ticks per rev
 #define WHEEL_DIAMETER 0.2                  // wheel's diameter in meters
-#define LR_WHEELS_DISTANCE 0.46             // distance between left and right wheels
+#define LR_WHEELS_DISTANCE 0.46             // distance between left and right wheels; Gate A unit, measured 2026-06-19; the 2.0 track is set by decisions.yaml DRIVE-TRACK
 #define PWM_BITS 10                          // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 3000                  // PWM Frequency
 
@@ -204,7 +205,7 @@ ROBOT ORIENTATION
 // #define USE_LIDAR_UDP  // send lidar data to udp server
 #define LIDAR_RXD 4
 #define LIDAR_SERIAL 1 // uart number
-#define LIDAR_BAUDRATE 230400
+#define LIDAR_BAUDRATE 230400 // unused upstream linorobot2 leftover; the LiDAR is driven from the Jetson
 #define LIDAR_SERVER { 192, 168, 1, 100 }  // eg IP of the desktop computer
 #define LIDAR_PORT 8889
 #define BAUDRATE 115200                     // micro-ROS serial baud (l'agent tourne a 115200)
@@ -224,7 +225,7 @@ ROBOT ORIENTATION
 // #define BATTERY_CAP 2.0  // battery capacity Ah
 // #define BATTERY_MIN 9.0  // battery minimal voltage
 // #define BATTERY_MAX 12.6 // battery maximum voltage
-// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
+// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04; unused upstream linorobot2 leftover; the LiDAR is driven from the Jetson
 // #define ECHO_PIN 32
 // #define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 30 // Sec
