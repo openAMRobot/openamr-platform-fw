@@ -6,6 +6,16 @@ Firmware can drive the motors directly, so the safety-relevant behaviours are do
 This is the current commissioning state; it is **not** a substitute for a hardware E-stop (none is
 wired yet — see the [overlay module mapping](../../boards/teensy_4_0/linorobot2_overlay/README.md)).
 
+## Hardware chain is the primary stop (E-01)
+
+The [E-01 safety and power baseline](https://github.com/openAMRobot/openamr-platform-hw/blob/main/electrical/power_distribution/e01-safety-and-power.md)
+(`openamr-platform-hw`, 15 October 2026) defines the hardware E-stop chain: two dual-channel
+E-stops into a Pilz PNOZ s3 safety relay that holds two LEV100H contactors on actuator power. That
+hardware chain is the primary stop. The firmware is not in the safety path: it only observes the
+chain (`SAFETY_OK`, contactor feedback, RESET) and adds a secondary inhibit, and the watchdogs
+below are functional, never safety evidence. The firmware side is tracked in the E-01 safety state
+machine issue ([#17](https://github.com/openAMRobot/openamr-platform-fw/issues/17)); none of it is built or tested yet.
+
 ## Command watchdog (`/cmd_vel` timeout)
 
 If no fresh `/cmd_vel` arrives within **200 ms**, `moveBase()` performs a **deterministic full
