@@ -7,7 +7,7 @@ repository today is the Gate A unit (Teensy 4.0 with the MPU6500); see the
 This page records the decided 2.0 I/O as a reference for the STM32H723ZG port. It lists
 requirements, not pins.
 
-Source: P-03 Decision Addendum rev19.0 items 14 and 19 (12 October 2026), BOM Issue 7.7.
+Source: P-03 rev19.6 items 14, 19 and 22; OpenAMRobot 2.0 Detailed Hardware BOM Issue 7.10.
 Register entries: `BASE-CONTROLLER-IO`, `BASE-CONTROLLER-GATES` and `IMU-TOPIC-OWNERSHIP` in
 [decisions.yaml](https://github.com/openAMRobot/.github/blob/main/decisions.yaml).
 
@@ -28,6 +28,17 @@ controller board.
 - WHO_AM_I `0x47` checked at boot.
 - Publishes `/imu/data_raw`; the host filter owns `/imu/data`.
 - Mounted on the centreline at x 0.195 m from `base_link`.
+
+## Safety and charging I/O (P-03 item 22)
+
+- PNOZ s3 Y32 enabled status is a controller input through one complete ISO1212 isolated input module; channel 2 is spare.
+- The base E-stop spare NO contact is a direct controller diagnostic input. It reports that button only. On the Conestoga build, the front and back E-stops are monitored on separate controller pins.
+- RESET NC and the charger fault open-collector signal are direct controller inputs with 3.3 V pull-ups and series resistors.
+- RESET lamp and KCHG coil are controller outputs through one TI TPL7407L low-side driver supplied from the regulated 24 V rail.
+- Separate K1_CLOSED and K2_CLOSED firmware feedback is removed. Each contactor's NC auxiliary is in the PNOZ start circuit.
+- GPIO assignments remain in the pin map and are not assigned on this page.
+
+References: [NUCLEO-H723ZG pin map](https://docs.google.com/document/d/1C8QWpaIR4CFchDYp1SB6J-JmQL3VEMLl/edit), [Drive datasheet index](https://docs.google.com/document/d/1j_060HCrq38LloNOodoAYJo8fWIgATMPDUFOauSoijg/edit), and [platform-hw datasheet folders](https://github.com/openAMRobot/openamr-platform-hw/tree/docs/controller-sensor-datasheets-2026-10-18/datasheets).
 
 ## CAN
 
