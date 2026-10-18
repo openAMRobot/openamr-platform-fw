@@ -27,7 +27,7 @@ controller board.
 - Data-ready interrupt with DMA.
 - WHO_AM_I `0x47` checked at boot.
 - Publishes `/imu/data_raw`; the host filter owns `/imu/data`.
-- Mounted on the centreline at x 0.195 m from `base_link`.
+- `imu_link` is at (0.0544, 0, 0.1210) m from `base_link`, yaw -90 deg (rpy 0, 0, -pi/2), on the electronics bracket MMP.04.00.00.002 (P-03 rev19.6 item 19, D5 update of 16 October). The firmware publishes raw sensor-frame values; the axis mapping is in the URDF, with no firmware remap.
 
 ## Safety and charging I/O (P-03 item 22)
 
@@ -38,7 +38,7 @@ controller board.
 - Separate K1_CLOSED and K2_CLOSED firmware feedback is removed. Each contactor's NC auxiliary is in the PNOZ start circuit.
 - GPIO assignments remain in the pin map and are not assigned on this page.
 
-References: [NUCLEO-H723ZG pin map](https://docs.google.com/document/d/1C8QWpaIR4CFchDYp1SB6J-JmQL3VEMLl/edit), [Drive datasheet index](https://docs.google.com/document/d/1j_060HCrq38LloNOodoAYJo8fWIgATMPDUFOauSoijg/edit), and [platform-hw datasheet folders](https://github.com/openAMRobot/openamr-platform-hw/tree/docs/controller-sensor-datasheets-2026-10-18/datasheets).
+References: the NUCLEO-H723ZG pin map (team document, owner Evans Kwashie) and the [platform-hw datasheet folders](https://github.com/openAMRobot/openamr-platform-hw/tree/main/datasheets).
 
 ## CAN
 
