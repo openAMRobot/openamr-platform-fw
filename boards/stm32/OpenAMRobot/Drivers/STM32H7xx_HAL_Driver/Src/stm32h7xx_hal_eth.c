@@ -281,7 +281,7 @@ static HAL_StatusTypeDef HAL_ETH_PTP_AddendUpdate(ETH_HandleTypeDef *heth, int32
   *  @brief    Initialization and Configuration functions
   *
 @verbatim
-===============================================================================
+ ===============================================================================
             ##### Initialization and Configuration functions #####
  ===============================================================================
     [..]  This subsection provides a set of functions allowing to initialize and

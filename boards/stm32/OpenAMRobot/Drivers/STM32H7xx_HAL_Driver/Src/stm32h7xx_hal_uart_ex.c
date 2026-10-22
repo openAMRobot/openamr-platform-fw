@@ -90,7 +90,7 @@ static void UARTEx_SetNbDataToProcess(UART_HandleTypeDef *huart);
   * @brief    Extended Initialization and Configuration Functions
   *
 @verbatim
-===============================================================================
+ ===============================================================================
             ##### Initialization and Configuration functions #####
  ===============================================================================
     [..]
