@@ -27,9 +27,14 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 |---|---|---|---|
 | E-01 hardware chain is the primary stop | #18 e01-safety-power | draft | platform-lead review |
 | 2.0 controller I/O, P-03 rev19.6 item 22 | #19 docs/base-controller-2-0-io-p03-19-6 | in review | owner review |
-| STM32H723 CubeMX project | #22 build/add-stm32cubemx-project | in review | owner review; vendored HAL edits (e49f0bb) |
+| STM32H723 CubeMX project | #22 build/add-stm32cubemx-project | in review | 4 unused UART TX AFs, DMA descriptors in DTCM, e49f0bb HAL edits (#28, #29) |
 | STM32 and Teensy builds, host tests | #23 ci/firmware-build-and-tests | draft | review, then merge |
-| Shared rules v2, STATE.md | governance/agent-rules-state (this PR) | draft | owner adopt/adapt/reject |
+| Shared rules v2, STATE.md | #24 governance/agent-rules-state (this PR) | draft | owner adopt/adapt/reject |
+| Host C/C++ tests, cppcheck, clang-format | #27 test/host-cpp-static-analysis (on #23) | draft | retarget to main after #23 |
+| .ioc against hw contract, vendor provenance | #28 ci/ioc-contract-provenance (on #23) | draft | retarget to main after #23 |
+| Firmware nightly, Renode, HIL bench scaffold | #29 ci/nightly-hil (on #27) | draft | retarget to main after #27 |
+| PWM_MIN expands to -1025 | issue #25 | open | owner fix and bench check; remove the skip |
+| encCalCallback accepts any ratio | issue #26 | open | owner fix with a host test |
 
 ## Decisions this repository implements
 
@@ -42,6 +47,8 @@ interface), COMPUTE (register openAMRobot/.github decisions.yaml at 1c3f516, 202
 - Near-field issue #11 still states 4 TF-Luna and 2 MB7040 (superseded by BASE-CONTROLLER-IO).
 - Local .github/PULL_REQUEST_TEMPLATE.md overrides the organization template; alignment
   (rollout step (a)) left to the owner (2026-10-24).
+
+- HIL bench (#29): no runner registered, no hil-bench environment, firmware banner not implemented.
 
 ## Not verified
 
