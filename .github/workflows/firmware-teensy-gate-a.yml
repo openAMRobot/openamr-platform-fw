@@ -46,8 +46,11 @@ jobs:
           key: pio-teensy40-${{ env.UPSTREAM_SHA }}-${{ hashFiles('boards/teensy_4_0/**') }}
           restore-keys: pio-teensy40-${{ env.UPSTREAM_SHA }}-
 
-      - name: Install PlatformIO
-        run: python -m pip install platformio==6.1.18
+      - name: Install PlatformIO in its own environment (micro_ros_platformio needs ~/.platformio/penv)
+        run: |
+          python -m venv ~/.platformio/penv
+          ~/.platformio/penv/bin/python -m pip install platformio==6.1.18
+          echo "$HOME/.platformio/penv/bin" >> "$GITHUB_PATH"
 
       - name: Apply the OpenAMRobot overlay
         run: |
