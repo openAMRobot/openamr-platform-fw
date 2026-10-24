@@ -1,0 +1,356 @@
+name: Firmware nightly
+
+# Layer 2: do the repositories still agree? Builds and checks openamr-platform-fw main against
+# openamr-platform-hw main (controller I/O contract) and openAMRobot/.github main, uploads the
+# firmware images with SHA-256 and writes ci-evidence.json (docs/ci.md, same format as
+# openamr-platform-hw). GitHub-hosted runners only; no hardware, no secrets, never on pull_request.
+on:
+  schedule:
+    - cron: "47 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # linorobot2_hardware branch jazzy, the base pinned in NOTICE.md
+  UPSTREAM_SHA: aaf9d59cd18c0cd1905be6fdae9ea5c99961a766
+  TEENSY_PLATFORM: teensy@5.0.0
+  # Ubuntu 24.04 (noble) archive versions
+  APT_HOST: libgtest-dev=1.14.0-1 googletest=1.14.0-1 cppcheck=2.13.0-2ubuntu3 clang-format-18=1:18.1.3-1ubuntu1 ninja-build
+  APT_ARM: gcc-arm-none-eabi=15:13.2.rel1-2 binutils-arm-none-eabi=2.42-1ubuntu1+23 libnewlib-arm-none-eabi=4.4.0.20231231-2 ninja-build
+  # Renode portable release (experimental job); SHA-256 of the tarball, checked before use
+  RENODE_URL: https://github.com/renode/renode/releases/download/v1.16.1/renode-1.16.1.linux-portable-dotnet.tar.gz
+  RENODE_SHA256: 00e113cdbd0f5354cf2f64bbe3f5a070d8958409542fca66e45ac97d982938c0
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      fw_sha: ${{ steps.shas.outputs.fw }}
+      hw_sha: ${{ steps.shas.outputs.hw }}
+      gh_sha: ${{ steps.shas.outputs.gh }}
+      stm32: ${{ steps.shas.outputs.stm32 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          path: fw
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: openAMRobot/openamr-platform-hw
+          ref: main
+          path: hw
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: openAMRobot/.github
+          ref: main
+          path: dotgithub
+          persist-credentials: false
+      - name: Record the commits under test
+        id: shas
+        run: |
+          for r in fw hw dotgithub; do echo "$r $(git -C "$r" rev-parse HEAD)"; done | tee "$RUNNER_TEMP/shas.txt"
+          echo "fw=$(git -C fw rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "hw=$(git -C hw rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "gh=$(git -C dotgithub rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "stm32=$(ls fw/boards/stm32/*/*.ioc 2>/dev/null | grep -c . || true)" >> "$GITHUB_OUTPUT"
+          { echo "### Commits under test"; echo '```'; cat "$RUNNER_TEMP/shas.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  host:
+    name: host tests and static analysis
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.prepare.outputs.fw_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: linorobot/linorobot2_hardware
+          ref: ${{ env.UPSTREAM_SHA }}
+          path: upstream
+          persist-credentials: false
+      - name: Install pinned tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $APT_HOST
+          sudo ln -sf "$(command -v clang-format-18)" /usr/local/bin/clang-format
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-deps numpy==2.2.6 -r tools/ci/requirements.txt
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Host checks
+        run: |
+          set +e
+          bash tools/ci/nightly_fw.sh . upstream out
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: checks-host
+          path: out
+          retention-days: 90
+          if-no-files-found: error
+
+  teensy:
+    name: teensy40 (Gate A, linorobot2 overlay)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.prepare.outputs.fw_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: linorobot/linorobot2_hardware
+          ref: ${{ env.UPSTREAM_SHA }}
+          path: upstream
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO (micro_ros_platformio needs ~/.platformio/penv)
+        run: |
+          python -m venv ~/.platformio/penv
+          ~/.platformio/penv/bin/python -m pip install platformio==6.1.18
+          echo "$HOME/.platformio/penv/bin" >> "$GITHUB_PATH"
+      - name: Apply the overlay and pin the platform in the CI copy of platformio.ini
+        run: |
+          overlay=boards/teensy_4_0/linorobot2_overlay
+          cp "$overlay/config/lino_base_config.h" upstream/config/lino_base_config.h
+          cp "$overlay/lib/pid/pid.cpp" upstream/firmware/lib/pid/pid.cpp
+          cp "$overlay/lib/pid/pid.h" upstream/firmware/lib/pid/pid.h
+          cp "$overlay/src/firmware.ino" upstream/firmware/src/firmware.ino
+          sed -i "0,/^platform = teensy\s*$/s//platform = ${TEENSY_PLATFORM}/" upstream/firmware/platformio.ini
+          grep -q "^platform = ${TEENSY_PLATFORM}$" upstream/firmware/platformio.ini
+      - name: Build teensy40
+        id: build
+        working-directory: upstream/firmware
+        run: pio run -e teensy40
+      - name: Collect firmware and record the result
+        if: always()
+        env:
+          BUILD: ${{ steps.build.outcome }}
+        run: |
+          mkdir -p out/firmware
+          case "$BUILD" in
+            success) status=PASS; detail="teensy40 with $TEENSY_PLATFORM on linorobot2_hardware ${UPSTREAM_SHA:0:7}" ;;
+            failure) status=FAIL; detail="pio run -e teensy40 failed" ;;
+            *)       status="NOT RUN"; detail="build step $BUILD" ;;
+          esac
+          printf 'teensy-build\t%s\t%s\n' "$status" "$detail" > out/checks.tsv
+          for f in firmware.hex firmware.elf; do
+            [ -f "upstream/firmware/.pio/build/teensy40/$f" ] && cp "upstream/firmware/.pio/build/teensy40/$f" "out/firmware/teensy40-$f"
+          done
+          (cd out/firmware && sha256sum -- * > SHA256SUMS-teensy40 2>/dev/null) || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: checks-teensy
+          path: out
+          retention-days: 90
+
+  stm32:
+    name: STM32H723 ${{ matrix.preset }}
+    needs: prepare
+    if: needs.prepare.outputs.stm32 != '0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [Debug, Release]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.prepare.outputs.fw_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: openAMRobot/openamr-platform-hw
+          ref: ${{ needs.prepare.outputs.hw_sha }}
+          path: .hw
+          persist-credentials: false
+      - name: Install pinned tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $APT_ARM
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-deps -r tools/ci/requirements.txt
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Build, RAM_D2, .ioc contract and vendor provenance
+        run: |
+          set +e
+          bash tools/ci/nightly_stm32.sh ${{ matrix.preset }} . .hw out
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: checks-stm32-${{ matrix.preset }}
+          path: out
+          retention-days: 90
+          if-no-files-found: error
+
+  renode:
+    name: Renode boot (experimental, not a gate)
+    needs: [prepare, stm32]
+    if: needs.prepare.outputs.stm32 != '0'
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.prepare.outputs.fw_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: checks-stm32-Debug
+          path: stm32
+      - name: Download Renode (pinned release, SHA-256 checked)
+        run: |
+          curl -sSL -o "$RUNNER_TEMP/renode.tar.gz" "$RENODE_URL"
+          echo "$RENODE_SHA256  $RUNNER_TEMP/renode.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/renode" && tar xzf "$RUNNER_TEMP/renode.tar.gz" -C "$RUNNER_TEMP/renode" --strip-components=1
+      - name: Boot the STM32 Debug ELF to main's idle loop
+        id: boot
+        run: |
+          elf=$(ls stm32/firmware/*-debug.elf | head -1)
+          python3 tools/ci/renode_boot.py --renode "$RUNNER_TEMP/renode/renode" --elf "$elf" --summary "$GITHUB_STEP_SUMMARY" | tee renode.log
+      - name: Record the experimental result
+        if: always()
+        env:
+          BOOT: ${{ steps.boot.outcome }}
+        run: |
+          mkdir -p out
+          line=$(head -1 renode.log 2>/dev/null || echo "renode step $BOOT")
+          case "$BOOT" in
+            success) status=PASS ;;
+            failure) status=FAIL ;;
+            *)       status="NOT RUN" ;;
+          esac
+          printf 'renode-boot\t%s\t%s (experimental, not a gate)\texperimental\n' "$status" "$line" > out/checks.tsv
+          cp renode.log out/ 2>/dev/null || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: checks-renode
+          path: out
+          retention-days: 90
+
+  evidence:
+    name: evidence (ci-evidence.json)
+    needs: [prepare, host, teensy, stm32, renode]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.prepare.outputs.fw_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: openAMRobot/openamr-platform-hw
+          ref: ${{ needs.prepare.outputs.hw_sha }}
+          path: .hw
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: checks-*
+          path: parts
+      - name: Install pinned Python packages
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-deps -r tools/ci/requirements.txt
+      - name: Merge check results
+        env:
+          HOST: ${{ needs.host.result }}
+          TEENSY: ${{ needs.teensy.result }}
+          STM32: ${{ needs.stm32.result }}
+          HAS_STM32: ${{ needs.prepare.outputs.stm32 }}
+        run: |
+          : > checks.tsv
+          for part in host teensy stm32-Debug stm32-Release renode; do
+            [ -f "parts/checks-$part/checks.tsv" ] && cat "parts/checks-$part/checks.tsv" >> checks.tsv
+          done
+          [ -f parts/checks-host/checks.tsv ] || printf 'host-checks\tFAIL\thost job %s before reporting\n' "$HOST" >> checks.tsv
+          [ -f parts/checks-teensy/checks.tsv ] || printf 'teensy-build\tFAIL\tteensy job %s before reporting\n' "$TEENSY" >> checks.tsv
+          if [ "$HAS_STM32" = 0 ]; then
+            for c in stm32-build-debug stm32-build-release ram-d2-debug ram-d2-release ioc-contract vendor-provenance; do
+              printf '%s\tNOT RUN\tno STM32 project on openamr-platform-fw main\n' "$c" >> checks.tsv
+            done
+            printf 'renode-boot\tNOT RUN\tno STM32 project on openamr-platform-fw main\texperimental\n' >> checks.tsv
+          else
+            for p in Debug Release; do
+              [ -f "parts/checks-stm32-$p/checks.tsv" ] || printf 'stm32-%s\tFAIL\tstm32 job %s before reporting\n' "${p,,}" "$STM32" >> checks.tsv
+            done
+          fi
+          # the evidence writer and schema are kept identical in both repositories
+          if [ -f .hw/tools/ci/write_evidence.py ] && [ -f .hw/tools/ci/ci-evidence.schema.json ]; then
+            if cmp -s tools/ci/write_evidence.py .hw/tools/ci/write_evidence.py && cmp -s tools/ci/ci-evidence.schema.json .hw/tools/ci/ci-evidence.schema.json; then
+              printf 'evidence-format-sync\tPASS\tidentical to openamr-platform-hw\n' >> checks.tsv
+            else
+              printf 'evidence-format-sync\tFAIL\twrite_evidence.py or ci-evidence.schema.json differs from openamr-platform-hw\n' >> checks.tsv
+            fi
+          else
+            printf 'evidence-format-sync\tNOT RUN\tno write_evidence.py on openamr-platform-hw main\n' >> checks.tsv
+          fi
+          mkdir -p firmware
+          find parts -path '*/firmware/*' -type f ! -name 'SHA256SUMS*' -exec cp {} firmware/ \;
+          ls -la firmware
+      - name: Write ci-evidence.json
+        env:
+          FW_SHA: ${{ needs.prepare.outputs.fw_sha }}
+          HW_SHA: ${{ needs.prepare.outputs.hw_sha }}
+          GH_SHA: ${{ needs.prepare.outputs.gh_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          contract=()
+          if [ -f .hw/interfaces/electrical/base-controller-io.yaml ]; then
+            contract=(--contract .hw/interfaces/electrical/base-controller-io.yaml
+                      --contract-path interfaces/electrical/base-controller-io.yaml
+                      --contract-repository openAMRobot/openamr-platform-hw --contract-sha "$HW_SHA")
+          fi
+          artifacts=()
+          for f in firmware/*; do [ -f "$f" ] && artifacts+=(--artifact "$f"); done
+          "$RUNNER_TEMP/venv/bin/python" tools/ci/write_evidence.py --out ci-evidence.json \
+            --repository "$GITHUB_REPOSITORY" --sha "$FW_SHA" --ref main --workflow "$GITHUB_WORKFLOW" \
+            --run-url "$RUN_URL" --input "openAMRobot/openamr-platform-hw=$HW_SHA" --input "openAMRobot/.github=$GH_SHA" \
+            --checks checks.tsv --register-sha "$GH_SHA" "${contract[@]}" "${artifacts[@]}"
+          (cd firmware && sha256sum -- * > ../SHA256SUMS 2>/dev/null) || : > SHA256SUMS
+          {
+            echo "### ci-evidence.json ($(python3 -c 'import json;print(json.load(open("ci-evidence.json"))["result"])'))"
+            echo '| Check | Status | Detail |'
+            echo '|---|---|---|'
+            awk -F '\t' '{ printf "| %s | %s | %s%s |\n", $1, $2, $3, ($4 ? " (experimental)" : "") }' checks.tsv
+            echo
+            echo '```'; cat SHA256SUMS; echo '```'
+            echo "SHA-256 of ci-evidence.json: \`$(sha256sum ci-evidence.json | cut -d' ' -f1)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -P '\tNOT RUN\t' checks.tsv | while IFS=$'\t' read -r name _ detail _; do
+            echo "::warning title=$name::NOT RUN: $detail"
+          done
+      - name: Upload ci-evidence.json and firmware with SHA-256
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-evidence
+          path: |
+            ci-evidence.json
+            SHA256SUMS
+            firmware
+          retention-days: 90
+          if-no-files-found: error
+      - name: Fail on a failed check (after the evidence is stored)
+        run: |
+          echo "artifact id ${{ steps.upload.outputs.artifact-id }}, digest ${{ steps.upload.outputs.artifact-digest }}" >> "$GITHUB_STEP_SUMMARY"
+          result=$(python3 -c 'import json;print(json.load(open("ci-evidence.json"))["result"])')
+          echo "result: $result"
+          test "$result" != FAIL
