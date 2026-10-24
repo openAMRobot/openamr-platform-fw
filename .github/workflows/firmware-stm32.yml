@@ -1,17 +1,16 @@
 name: Firmware STM32H723 build
 
+# Runs only where the STM32 project exists (boards/stm32/). Workflow edits are exercised
+# by the next pull request that touches boards/stm32/, or manually on such a branch.
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "boards/stm32/**"
-      - "tools/ci/**"
-      - ".github/workflows/firmware-stm32.yml"
   push:
     branches: [main]
     paths:
       - "boards/stm32/**"
-      - "tools/ci/**"
-      - ".github/workflows/firmware-stm32.yml"
 
 permissions:
   contents: read

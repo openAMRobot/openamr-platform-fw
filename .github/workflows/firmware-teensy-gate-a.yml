@@ -58,7 +58,14 @@ jobs:
 
       - name: Build teensy40
         working-directory: upstream/firmware
-        run: pio run -e teensy40
+        run: |
+          set -o pipefail
+          if ! pio run -e teensy40 2>&1 | tee build.log; then
+            grep -iE "error|fatal|not found|failed" build.log | head -25 | while IFS= read -r line; do
+              echo "::error::${line//%/%25}"
+            done
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
