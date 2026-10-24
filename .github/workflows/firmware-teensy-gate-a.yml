@@ -60,6 +60,7 @@ jobs:
           overlay=boards/teensy_4_0/linorobot2_overlay
           cp "$overlay/config/lino_base_config.h" upstream/config/lino_base_config.h
           cp "$overlay/lib/pid/pid.cpp" upstream/firmware/lib/pid/pid.cpp
+          cp "$overlay/lib/pid/pid.h" upstream/firmware/lib/pid/pid.h
           cp "$overlay/src/firmware.ino" upstream/firmware/src/firmware.ino
           # pin the platform in the CI copy of the upstream platformio.ini ([env] section)
           sed -i "0,/^platform = teensy\s*$/s//platform = ${TEENSY_PLATFORM}/" upstream/firmware/platformio.ini

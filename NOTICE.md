@@ -25,7 +25,7 @@ This firmware is built as an **overlay on top of the linorobot2 firmware**.
 
 - **Upstream project:** linorobot2 — https://github.com/linorobot/linorobot2
 - **Upstream firmware repo:** linorobot2_hardware — https://github.com/linorobot/linorobot2_hardware
-  (the microcontroller firmware — `firmware.ino`, `lino_base_config.h`, `pid.cpp` — lives here)
+  (the microcontroller firmware — `firmware.ino`, `lino_base_config.h`, `pid.cpp`, `pid.h` — lives here)
 - **Upstream author / copyright:** Copyright (c) 2021 Juan Miguel Jimeno
 - **Upstream license:** Apache License, Version 2.0
 - **Pinned upstream version:** branch `jazzy`, commit
@@ -45,6 +45,7 @@ The following files are **modified derivatives** of linorobot2 source. Per Apach
 |---|---|---|
 | `boards/teensy_4_0/linorobot2_overlay/src/firmware.ino` | linorobot2 `firmware.ino` | feedforward + dither, runtime encoder-ripple correction table, `/debug/*` telemetry topics (`/debug/tune`, `/debug/openloop`, `/debug/left`, `/debug/right`), bounded open-loop test mode, IMU workaround (MPU6500), CycloneDDS-oriented tweaks |
 | `boards/teensy_4_0/linorobot2_overlay/lib/pid/pid.cpp` | linorobot2 `pid.cpp` | back-calculation anti-windup |
+| `boards/teensy_4_0/linorobot2_overlay/lib/pid/pid.h` | linorobot2 `pid.h` | declares `PID::reset()` |
 | `boards/teensy_4_0/linorobot2_overlay/config/lino_base_config.h` | linorobot2 `lino_base_config.h` | this unit's pins, PID gains (K_P 2.0 / K_I 0.1 / K_D 0.1), MOTOR2_GAIN, measured drivetrain constants, IMU/board selection |
 
 If you redistribute these files (or your own modifications of them), you must keep their
