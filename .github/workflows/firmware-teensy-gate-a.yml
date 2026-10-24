@@ -61,12 +61,16 @@ jobs:
           cp "$overlay/config/lino_base_config.h" upstream/config/lino_base_config.h
           cp "$overlay/lib/pid/pid.cpp" upstream/firmware/lib/pid/pid.cpp
           cp "$overlay/src/firmware.ino" upstream/firmware/src/firmware.ino
+          # pin the platform in the CI copy of the upstream platformio.ini ([env] section)
+          sed -i "0,/^platform = teensy\s*$/s//platform = ${TEENSY_PLATFORM}/" upstream/firmware/platformio.ini
+          grep -n "^platform" upstream/firmware/platformio.ini
+          grep -q "^platform = ${TEENSY_PLATFORM}$" upstream/firmware/platformio.ini
 
       - name: Build teensy40
         working-directory: upstream/firmware
         run: |
           set -o pipefail
-          if ! pio run -e teensy40 -O "platform=${TEENSY_PLATFORM}" 2>&1 | tee build.log; then
+          if ! pio run -e teensy40 2>&1 | tee build.log; then
             # errors first, then the log tail, as two annotations readable without downloading logs
             { grep -nE "error:|Error |Error:|\*\*\*|No such file|failed" build.log | grep -v -- "-Werror" | tail -n 25; } \
               | python3 -c "import sys; t=sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error title=pio errors::' + t[-3500:])"
