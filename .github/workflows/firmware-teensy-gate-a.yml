@@ -64,8 +64,11 @@ jobs:
         run: |
           set -o pipefail
           if ! pio run -e teensy40 2>&1 | tee build.log; then
-            # one annotation with the log tail, so the cause is readable without downloading logs
-            tail -n 80 build.log | python3 -c "import sys; t=sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error title=pio run failed::' + t)"
+            # errors first, then the log tail, as two annotations readable without downloading logs
+            { grep -nE "error:|Error |Error:|\*\*\*|No such file|failed" build.log | grep -v -- "-Werror" | tail -n 25; } \
+              | python3 -c "import sys; t=sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error title=pio errors::' + t[-3500:])"
+            tail -n 25 build.log \
+              | python3 -c "import sys; t=sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error title=pio log tail::' + t[-3500:])"
             exit 1
           fi
 
