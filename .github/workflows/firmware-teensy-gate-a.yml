@@ -61,9 +61,8 @@ jobs:
         run: |
           set -o pipefail
           if ! pio run -e teensy40 2>&1 | tee build.log; then
-            grep -iE "error|fatal|not found|failed" build.log | head -25 | while IFS= read -r line; do
-              echo "::error::${line//%/%25}"
-            done
+            # one annotation with the log tail, so the cause is readable without downloading logs
+            tail -n 80 build.log | python3 -c "import sys; t=sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error title=pio run failed::' + t)"
             exit 1
           fi
 
