@@ -47,7 +47,53 @@ python3 -m unittest discover -s tests/static -v
 python3 tools/ci/run_cppcheck.py && CLANG_FORMAT=clang-format-18 bash tools/ci/check_format.sh firmware
 ```
 
-## Layers 2 to 4
+The STM32 workflow also checks the CubeMX `.ioc` against the controller I/O contract of
+openamr-platform-hw and the vendored ST files against their upstream release
+(`tools/ci/check_ioc_contract.py`, `tools/ci/check_vendor_provenance.py`, added with #28).
 
-The nightly integration workflow, the hardware-in-the-loop bench workflow and the release
-evidence record are described in the sections added with them.
+## Layer 2: nightly integration checks
+
+Workflow `.github/workflows/firmware-nightly.yml` ("Firmware nightly"), daily at 02:47 UTC and on
+manual dispatch; never on pull requests. GitHub-hosted runners only, no secrets.
+
+| Job | Runs | Check names in the evidence |
+|---|---|---|
+| prepare | checks out openamr-platform-fw `main`, openamr-platform-hw `main`, openAMRobot/.github `main`; records the three SHAs | |
+| host | `tools/ci/nightly_fw.sh`: Python host tests, C/C++ host tests, mutation check, skip tracking, cppcheck, clang-format | `python-host-tests`, `cpp-host-tests`, `mutation-check`, `skip-tracking`, `cppcheck`, `clang-format` |
+| teensy | Gate A PlatformIO build (`teensy@5.0.0`, linorobot2_hardware `aaf9d59`); uploads `firmware.hex` and `firmware.elf` | `teensy-build` |
+| stm32 | when `boards/stm32/*/*.ioc` is on `main`: `tools/ci/nightly_stm32.sh` for Debug and Release; RAM_D2 check; in Debug the `.ioc` against openamr-platform-hw `main` and the vendor provenance check; uploads ELF, map and HEX | `stm32-build-debug`, `stm32-build-release`, `ram-d2-debug`, `ram-d2-release`, `ioc-contract`, `vendor-provenance` |
+| renode | experimental, not a gate (see below) | `renode-boot` (marked `experimental`) |
+| evidence | merges every job's results, checks that `write_evidence.py` and its schema are identical to openamr-platform-hw, writes `ci-evidence.json` and `SHA256SUMS`, uploads both with the firmware as `ci-evidence` (90 days) | `evidence-format-sync` |
+
+A tool that is not on `main` yet is reported NOT RUN with that reason. With no STM32 project on
+`main`, the STM32 checks are `NOT RUN: no STM32 project on openamr-platform-fw main`. The run
+fails after the evidence is uploaded when any gating check failed.
+
+### Renode boot (experimental, not a gate)
+
+`tools/ci/renode_boot.py` boots the STM32 Debug ELF in Renode 1.16.1 (pinned release, SHA-256
+checked) for a fixed virtual time and passes when the CPU is in `main()` and never ended in a
+fault or error handler. Renode has no STM32H723 platform, so it uses Renode's
+`platforms/cpus/stm32h743.repl` plus `tests/renode/stm32h723-additions.repl` (FDCAN3 at 0x4000D400) <!-- decision-allow: BASE-CONTROLLER-IO Renode platform file name used for emulation, not the base controller -->
+and a PWR CSR1 ACTVOSRDY read stub. The job summary lists every register access the platform
+does not model (RCC registers, UART RX inversion and others). It runs with `continue-on-error`
+and is recorded with `experimental: true`, so it never decides the evidence result. It is not
+simulation evidence.
+
+## Layer 3: hardware-in-the-loop bench
+
+Workflow `.github/workflows/firmware-hil-bench.yml` ("Firmware HIL bench"): manual dispatch only,
+`runs-on: [self-hosted, openamr-bench]`, environment `hil-bench`, inputs `firmware_sha` and
+`hardware_revision`. It flashes the image the nightly recorded for that commit on `main`, runs the
+scripts in `tools/hil/`, and writes a bench record whose manual checklist a person completes and
+signs. See [hil-bench.md](hil-bench.md). No job on a GitHub-hosted runner or on `pull_request`
+reaches the bench, hardware or secrets.
+
+## Release evidence: ci-evidence.json
+
+The nightly writes `ci-evidence.json` in the format defined in openamr-platform-hw
+(`docs/ci.md`, "Release evidence"; schema `tools/ci/ci-evidence.schema.json`, kept identical here
+and checked nightly by `evidence-format-sync`). For firmware, `artifacts[]` lists every built
+image (Teensy HEX and ELF, STM32 ELF, map and HEX per preset) with its SHA-256, and
+`contract` names the openamr-platform-hw contract the `.ioc` was checked against. The HIL bench
+record is separate and becomes release evidence only when signed.
