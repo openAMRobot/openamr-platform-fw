@@ -1,0 +1,75 @@
+name: Firmware STM32H723 build
+
+on:
+  pull_request:
+    paths:
+      - "boards/stm32/**"
+      - "tools/ci/**"
+      - ".github/workflows/firmware-stm32.yml"
+  push:
+    branches: [main]
+    paths:
+      - "boards/stm32/**"
+      - "tools/ci/**"
+      - ".github/workflows/firmware-stm32.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  stm32h723:
+    name: STM32H723 ${{ matrix.preset }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [Debug, Release]
+    defaults:
+      run:
+        working-directory: boards/stm32/OpenAMRobot
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Arm GNU toolchain
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi cmake ninja-build
+          arm-none-eabi-gcc --version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: |
+          set -o pipefail
+          cmake --build --preset ${{ matrix.preset }} 2>&1 | tee build.log
+
+      - name: No compiler warnings in project code
+        run: |
+          if grep -E '(Core|firmware)/[^:]*:[0-9]+:[0-9]+: warning:' build.log; then
+            echo "::error::Compiler warnings in project code (vendored Drivers are not checked)"
+            exit 1
+          fi
+
+      - name: Ethernet DMA descriptors in RAM_D2
+        run: python3 ../../../tools/ci/check_dma_placement.py build/${{ matrix.preset }}/OpenAMRobot.elf
+
+      - name: Size report
+        run: |
+          {
+            echo "### STM32H723 ${{ matrix.preset }}"
+            echo '```'
+            arm-none-eabi-size build/${{ matrix.preset }}/OpenAMRobot.elf
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: stm32h723-${{ matrix.preset }}
+          path: |
+            boards/stm32/OpenAMRobot/build/${{ matrix.preset }}/OpenAMRobot.elf
+            boards/stm32/OpenAMRobot/build/${{ matrix.preset }}/OpenAMRobot.map
+            boards/stm32/OpenAMRobot/build.log
+          if-no-files-found: error
