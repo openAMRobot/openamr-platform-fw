@@ -24,6 +24,9 @@ jobs:
       ROS_DISTRO: jazzy
       # linorobot2_hardware branch jazzy, the base pinned in NOTICE.md
       UPSTREAM_SHA: aaf9d59cd18c0cd1905be6fdae9ea5c99961a766
+      # upstream platformio.ini leaves the platform unpinned; newer toolchains reject micro-ROS
+      # sources (implicit clock_gettime). Pin the Teensyduino 1.59 platform (GCC 11.3).
+      TEENSY_PLATFORM: teensy@5.0.0
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -43,8 +46,8 @@ jobs:
           path: |
             ~/.platformio
             upstream/firmware/.pio
-          key: pio-teensy40-${{ env.UPSTREAM_SHA }}-${{ hashFiles('boards/teensy_4_0/**') }}
-          restore-keys: pio-teensy40-${{ env.UPSTREAM_SHA }}-
+          key: pio-teensy40-${{ env.TEENSY_PLATFORM }}-${{ env.UPSTREAM_SHA }}-${{ hashFiles('boards/teensy_4_0/**') }}
+          restore-keys: pio-teensy40-${{ env.TEENSY_PLATFORM }}-${{ env.UPSTREAM_SHA }}-
 
       - name: Install PlatformIO in its own environment (micro_ros_platformio needs ~/.platformio/penv)
         run: |
@@ -63,7 +66,7 @@ jobs:
         working-directory: upstream/firmware
         run: |
           set -o pipefail
-          if ! pio run -e teensy40 2>&1 | tee build.log; then
+          if ! pio run -e teensy40 -O "platform=${TEENSY_PLATFORM}" 2>&1 | tee build.log; then
             # errors first, then the log tail, as two annotations readable without downloading logs
             { grep -nE "error:|Error |Error:|\*\*\*|No such file|failed" build.log | grep -v -- "-Werror" | tail -n 25; } \
               | python3 -c "import sys; t=sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error title=pio errors::' + t[-3500:])"
