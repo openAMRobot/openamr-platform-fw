@@ -112,7 +112,7 @@ No physical hardware validation is claimed. Do not describe this project as hard
 - [ ] Confirm clock-tree and peripheral timing calculations.
 - [ ] Perform a clean Debug build and record the result.
 - [x] Build and link the Debug configuration in WSL.
-- [ ] Build and link the Release configuration.
+- [x] Build and link the Release configuration.
 - [ ] Review compiler warnings and generated initialization code.
 - [ ] Verify peripheral communication on the intended hardware.
 - [ ] Record the board revision, test setup, results, and known limitations.
