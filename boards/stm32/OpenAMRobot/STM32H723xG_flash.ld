@@ -155,6 +155,9 @@ SECTIONS
   /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 
+  .RxDescripSection (NOLOAD) : { . = ALIGN(32); *(.RxDescripSection) } >RAM_D2
+  .TxDescripSection (NOLOAD) : { . = ALIGN(32); *(.TxDescripSection) } >RAM_D2
+
   /* Initialized data sections goes into RAM, load LMA copy after code */
   .data :
   {
