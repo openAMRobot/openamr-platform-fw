@@ -149,12 +149,12 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   /*
- * P-03 rev20.0 pin-map exceptions:
- * PA0, PC12 and PF7 are unused MCU UART TX pins for the
- * receive-only MB7060 interfaces.
- * PE1 is released from UART8_TX and repurposed as the
- * onboard LD2 debug GPIO.
- */
+   * Pin-map exceptions (NUCLEO-H723ZG pin map, Section 7):
+   * PA0, PC12 and PF7 are unused MCU UART TX pins for the
+   * receive-only MB7060 interfaces.
+   * PE1 is released from UART8_TX and repurposed as the
+   * onboard LD2 debug GPIO.
+  */
   HAL_GPIO_DeInit(GPIOA, GPIO_PIN_0);
   HAL_GPIO_DeInit(GPIOC, GPIO_PIN_12);
   HAL_GPIO_DeInit(GPIOF, GPIO_PIN_7);
