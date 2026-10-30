@@ -123,8 +123,8 @@ ROBOT ORIENTATION
   #define MOTOR4_IN_A 3
   #define MOTOR4_IN_B 2
 
-  #define PWM_MAX pow(2, PWM_BITS) - 1
-  #define PWM_MIN -PWM_MAX
+  #define PWM_MAX (pow(2, PWM_BITS) - 1)
+  #define PWM_MIN (-PWM_MAX)
 #endif
 
 #ifdef USE_GENERIC_1_IN_MOTOR_DRIVER
@@ -144,8 +144,8 @@ ROBOT ORIENTATION
   #define MOTOR4_IN_A 3
   #define MOTOR4_IN_B -1 //DON'T TOUCH THIS! This is just a placeholder
 
-  #define PWM_MAX pow(2, PWM_BITS) - 1
-  #define PWM_MIN -PWM_MAX
+  #define PWM_MAX (pow(2, PWM_BITS) - 1)
+  #define PWM_MIN (-PWM_MAX)
 #endif
 
 #ifdef USE_BTS7960_MOTOR_DRIVER
@@ -165,8 +165,8 @@ ROBOT ORIENTATION
   #define MOTOR4_IN_A 4
   #define MOTOR4_IN_B 3
 
-  #define PWM_MAX pow(2, PWM_BITS) - 1
-  #define PWM_MIN -PWM_MAX
+  #define PWM_MAX (pow(2, PWM_BITS) - 1)
+  #define PWM_MIN (-PWM_MAX)
 #endif
 
 #ifdef USE_ESC_MOTOR_DRIVER

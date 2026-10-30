@@ -24,6 +24,7 @@
 #include <Arduino.h>
 #include <micro_ros_platformio.h>
 #include <stdio.h>
+#include <math.h>
 
 #include <rcl/rcl.h>
 #include <rcl/error_handling.h>
@@ -348,12 +349,32 @@ void tuneCallback(const void * msgin)
 // Receive the encoder ripple table at runtime: 72 floats = 36 LEFT_CAL then 36 RIGHT_CAL.
 void encCalCallback(const void * msgin)
 {
-    const std_msgs__msg__Float32MultiArray * m = (const std_msgs__msg__Float32MultiArray *)msgin;
-    if (m->data.size < (size_t)(2 * ENC_CAL_NBINS)) return;   // ignore malformed
-    for (int i = 0; i < ENC_CAL_NBINS; i++) {
-        LEFT_CAL[i]  = m->data.data[i];
+    if (msgin == NULL) return;
+
+    const std_msgs__msg__Float32MultiArray * m =
+        (const std_msgs__msg__Float32MultiArray *)msgin;
+
+    const size_t expected_size = 2 * ENC_CAL_NBINS;
+
+    if (m->data.data == NULL || m->data.size != expected_size) {
+        return;
+    }
+
+    // Validate the complete table before changing either wheel's calibration.
+    for (size_t i = 0; i < expected_size; i++) {
+        float value = m->data.data[i];
+
+        if (!isfinite(value) || value <= 0.05f) {
+            return;
+        }
+    }
+
+    // All values are valid; update both tables.
+    for (size_t i = 0; i < ENC_CAL_NBINS; i++) {
+        LEFT_CAL[i] = m->data.data[i];
         RIGHT_CAL[i] = m->data.data[ENC_CAL_NBINS + i];
     }
+
     enc_cal_loaded = true;
 }
 
