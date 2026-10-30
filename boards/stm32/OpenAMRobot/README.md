@@ -65,7 +65,7 @@ The following UART TX pins are retained in their CubeMX peripheral assignments b
 
 `UART8_RX` remains assigned to PE0 and is unaffected.
 
-These runtime exceptions implement the P-03 rev20.0 pin-map decisions. Do not remove the corresponding UART TX assignments from the CubeMX configuration or treat these pins as analog in the pin map.
+These runtime exceptions are documented in the NUCLEO-H723ZG pin map, Section 7. Do not remove the corresponding UART TX assignments from the CubeMX configuration or treat these pins as analog in the pin map.
 
 ## Project contents
 
@@ -144,7 +144,7 @@ The runtime UART TX pin exceptions are implemented in `USER CODE BEGIN 2` in `ma
 - `PE1` is deinitialized from `UART8_TX` and subsequently configured as a low-speed push-pull GPIO output for the onboard yellow LED `LD2`.
 - `UART8_RX` remains assigned to `PE0` and is unaffected.
 
-The source comment identifies these as P-03 rev20.0 pin-map exceptions.
+The source comment points to the NUCLEO-H723ZG pin map, Section 7.
 
 **Not verified:** Flashing, booting on the target board, physical peripheral communication, Ethernet connectivity, CAN communication, sensor readings, actuator operation, watchdog behaviour, or robot-level safety behaviour.
 
