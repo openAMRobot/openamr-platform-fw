@@ -24,7 +24,7 @@ The project has been configured and built in WSL using CMake, Ninja, and GNU Arm
   - WSL Ubuntu 24.04
   - CMake 3.28.3
   - Ninja 1.11.1
-  - GNU Arm GCC 13.2.1 (`arm-none-eabi-gcc`)
+  - GNU Arm GCC 13.3.1 (`arm-none-eabi-gcc`)
 
 Confirm the exact development-board variant and physical pin mapping against the approved hardware design before connecting peripherals.
 
@@ -50,6 +50,23 @@ These entries describe configuration, not verified peripheral operation. They do
 
 Treat the pin assignments as a proposed configuration until checked against the approved pin map and physical board.
 
+### Pin assignment note
+
+- **PE11:** Candidate software-controlled chip-select for the ICM-42688-P IMU using the SPI4_NSS AF5-capable pin. This assignment is not yet a confirmed hardware connection. The IMU data-ready/INT1 GPIO assignment remains to be confirmed.
+
+### Runtime UART TX pin exceptions
+
+The following UART TX pins are retained in their CubeMX peripheral assignments but deinitialized at startup in `main.c`, under `USER CODE BEGIN 2`:
+
+- **PA0:** UART4_TX; unused because the MB7060 interface is receive-only.
+- **PC12:** UART5_TX; unused because the MB7060 interface is receive-only.
+- **PF7:** UART7_TX; unused because the MB7060 interface is receive-only.
+- **PE1:** UART8_TX; deinitialized and subsequently configured as a low-speed push-pull GPIO output for the onboard yellow debug LED LD2.
+
+`UART8_RX` remains assigned to PE0 and is unaffected.
+
+These runtime exceptions implement the P-03 rev20.0 pin-map decisions. Do not remove the corresponding UART TX assignments from the CubeMX configuration or treat these pins as analog in the pin map.
+
 ## Project contents
 
 - `OpenAMRobot.ioc` — editable CubeMX configuration
@@ -62,6 +79,7 @@ Treat the pin assignments as a proposed configuration until checked against the 
 - `.mxproject` — CubeMX project metadata
 
 Retain vendor licence files, copyright notices, and other notices distributed under `Drivers/`. ST-supplied files remain subject to their applicable licence terms.
+
 ## Build prerequisites
 
 A local build requires:
@@ -70,7 +88,7 @@ A local build requires:
 - GNU Arm Embedded toolchain (`arm-none-eabi-gcc` and companion tools)
 - Ninja, used by the provided CMake presets
 
-The verified WSL environment used CMake 3.28.3, Ninja 1.11.1, and GNU Arm GCC 13.2.1.
+The verified WSL environment used CMake 3.28.3, Ninja 1.11.1, and GNU Arm GCC 13.3.1.
 
 ## Build instructions
 
@@ -94,28 +112,55 @@ The presets use Ninja and the repository's `cmake/gcc-arm-none-eabi.cmake` toolc
 
 ## Verification evidence and limitations
 
-The following has been verified in WSL:
+PR #22 was independently verified by Alex against:
 
-- The Debug configuration builds and links an ELF executable.
-- The linker script places the Ethernet descriptor sections in `RAM_D2`, outside DTCM.
-- The RX descriptor table was observed at `0x30000000`.
-- The TX descriptor table was observed at `0x30000060`.
-- `CMakeLists.txt` declares the linker script as a link dependency.
+- **Base commit:** `f96014d`
+- **Head commit:** `4dfd314`
+- **Compiler:** GNU Arm GCC 13.3.1 (`arm-none-eabi-gcc`)
+- **Build environment:** WSL
+- **Warnings:** 0
 
-**Not verified:** flashing, booting on the target board, physical peripheral communication, Ethernet connectivity, CAN communication, sensor readings, actuator operation, watchdog behavior, or robot-level safety behavior.
+The following commands were used:
 
-No physical hardware validation is claimed. Do not describe this project as hardware-verified until the relevant tests have actually been performed and their results recorded.
+```bash
+cmake --preset Debug
+cmake --build --preset Debug
+cmake --preset Release
+cmake --build --preset Release
+```
+
+Both Debug and Release configurations built and linked successfully.
+
+Ethernet descriptor placement was checked:
+
+- RX descriptor table: `0x30000000` in `RAM_D2`.
+- TX descriptor table: `0x30000060` in `RAM_D2`.
+- The linker script is declared as a link dependency in `CMakeLists.txt`.
+- The verification revert check was clean.
+
+The runtime UART TX pin exceptions are implemented in `USER CODE BEGIN 2` in `main.c`:
+
+- `PA0`, `PC12` and `PF7` are deinitialized because they are unused TX pins for the receive-only MB7060 interfaces.
+- `PE1` is deinitialized from `UART8_TX` and subsequently configured as a low-speed push-pull GPIO output for the onboard yellow LED `LD2`.
+- `UART8_RX` remains assigned to `PE0` and is unaffected.
+
+The source comment identifies these as P-03 rev20.0 pin-map exceptions.
+
+**Not verified:** Flashing, booting on the target board, physical peripheral communication, Ethernet connectivity, CAN communication, sensor readings, actuator operation, watchdog behaviour, or robot-level safety behaviour.
+
+This is build-verified, not hardware-verified. Do not claim physical hardware validation until the relevant tests have been performed and recorded.
 
 ## Verification checklist
 
-- [ ] Review `.ioc` peripheral and pin assignments against the approved pin map.
+- [ ] Review `.ioc` peripheral and pin assignments against the approved pin map, including documented TX-pin exceptions.
 - [ ] Confirm clock-tree and peripheral timing calculations.
-- [ ] Perform a clean Debug build and record the result.
-- [x] Build and link the Debug configuration in WSL.
-- [x] Build and link the Release configuration.
-- [ ] Review compiler warnings and generated initialization code.
+- [x] Debug configuration and build independently verified by Alex in WSL.
+- [x] Release configuration and build independently verified by Alex in WSL.
+- [x] Compiler warnings checked: 0 warnings reported.
+- [x] Ethernet descriptor addresses checked: RX `0x30000000`, TX `0x30000060`, both in `RAM_D2`.
+- [x] Linker script dependency and clean revert check verified.
 - [ ] Verify peripheral communication on the intended hardware.
-- [ ] Record the board revision, test setup, results, and known limitations.
+- [ ] Record the board revision, test setup, results, and known limitations after hardware validation.
 
 ## Licensing
 
