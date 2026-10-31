@@ -148,6 +148,8 @@ float dither_amp = DITHER_DEFAULT;  // PWM, live-tunable (/debug/tune angular.z)
 // CURRENT boot's encoder zero (a compiled-in table is wrong: flashing reboots & shifts the zero).
 // Until a table is received, both default to 1.0 = passthrough (raw rpm, like no correction).
 #define ENC_CAL_NBINS 36
+#define ENC_CAL_MIN 0.5f
+#define ENC_CAL_MAX 2.0f
 #define ENC_CAL_CPR   1024
 float LEFT_CAL[ENC_CAL_NBINS];
 float RIGHT_CAL[ENC_CAL_NBINS];
@@ -364,7 +366,7 @@ void encCalCallback(const void * msgin)
     for (size_t i = 0; i < expected_size; i++) {
         float value = m->data.data[i];
 
-        if (!isfinite(value) || value <= 0.05f) {
+        if (!isfinite(value) || value < ENC_CAL_MIN || value > ENC_CAL_MAX) {
             return;
         }
     }
