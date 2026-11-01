@@ -1,6 +1,6 @@
 # Teensy 4.0 — linorobot2 overlay
 
-Firmware for the **real OpenAMRobot differential base**, running on a **Teensy 4.0**
+Gate A (legacy) firmware for the existing OpenAMRobot base, running on a **Teensy 4.0**
 (NXP i.MX RT1062, Cortex-M7 @ 600 MHz).
 
 ## What this is (and is not)

@@ -1,6 +1,7 @@
 # micro-ROS bringup
 
-*Applies to the Teensy 4.0 `linorobot2_overlay` firmware.*
+*Applies to the Gate A (legacy) Teensy 4.0 `linorobot2_overlay` firmware, also the release fallback;
+not the 2.0 STM32H723ZG firmware.*
 
 The firmware is a **micro-ROS** application. It connects to a **micro-ROS agent** on the host over
 USB serial and exposes the robot's topics. This page covers the connection, the topic contract, and
