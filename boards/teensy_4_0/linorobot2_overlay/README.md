@@ -14,7 +14,7 @@ linorobot2 firmware tree is the base; you drop these files on top of it.
 Going modular later is a clean migration — the mapping below shows which linorobot2
 internals already cover each planned module, so they can be split out one at a time.
 
-## Module mapping (Alex's plan → linorobot2 internals)
+## Module mapping (planned modules → linorobot2 internals)
 
 | Planned module (`firmware/…`) | Where it lives in this overlay / linorobot2 | Status |
 |---|---|---|
