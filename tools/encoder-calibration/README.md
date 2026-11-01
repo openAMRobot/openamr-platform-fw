@@ -2,7 +2,7 @@
 
 These are the **host-side** scripts that build and load the encoder ripple-correction table the
 firmware applies at runtime (`/debug/enc_cal`). They are Python/ROS 2 tools; they run on the host
-(the Pi or a dev PC), not on the Teensy.
+(the host computer or a dev PC), not on the Teensy.
 
 For the *why* and the full engineering story, read
 [`docs/architecture/encoder-calibration.md`](../../docs/architecture/encoder-calibration.md). Short

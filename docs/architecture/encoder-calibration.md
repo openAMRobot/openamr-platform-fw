@@ -60,7 +60,8 @@ boot. So the shape is captured once as a reference, and each boot only re-aligns
 
 1. A reference table (fixed shape) lives in the host tooling
    ([`tools/encoder-calibration/encoder_ref_table.json`](../../tools/encoder-calibration/)). The
-   alignment scripts are host-side (they run on the Pi / a dev PC, not on the Teensy) and are
+   alignment scripts are host-side (they run on the host, the Jetson or the Pi on the existing
+   robot, or on a dev PC; not on the Teensy) and are
    vendored in this repo under [`tools/encoder-calibration/`](../../tools/encoder-calibration/).
 2. After **every Teensy power-cycle**, a short alignment run (~6–8 s) spins the wheels, measures
    the raw per-angle ripple, correlates it sub-bin (~1°) against the reference to find the current

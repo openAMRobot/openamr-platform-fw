@@ -11,7 +11,7 @@ the LED status codes.
 
 The micro-ROS transport topology is shown below.
 
-![The Teensy 4.0 runs a micro-ROS client over USB serial 115200; the micro-ROS agent on the Pi 5 bridges it into the CycloneDDS ROS 2 graph. Teensy publishes /odom/unfiltered, /imu/data_raw, /imu/mag, /debug/left|right|pwm and subscribes /cmd_vel, /debug/openloop|tune|enc_cal; the host EKF/Madgwick produces filtered /imu/data + /odom for Nav2. The control loop runs only while the agent is connected; on disconnect the firmware fullStop()s](diagrams/micro-ros-node-topology.svg)
+![The Teensy 4.0 runs a micro-ROS client over USB serial 115200; the micro-ROS agent on the host (existing robot: Raspberry Pi 5, legacy; Gate A: Jetson) bridges it into the CycloneDDS ROS 2 graph. Teensy publishes /odom/unfiltered, /imu/data_raw, /imu/mag, /debug/left|right|pwm and subscribes /cmd_vel, /debug/openloop|tune|enc_cal; the host EKF/Madgwick produces filtered /imu/data + /odom for Nav2. The control loop runs only while the agent is connected; on disconnect the firmware fullStop()s](diagrams/micro-ros-node-topology.svg)
 
 
 - **USB serial** at **`BAUDRATE = 115200`** — this must match the agent exactly.
