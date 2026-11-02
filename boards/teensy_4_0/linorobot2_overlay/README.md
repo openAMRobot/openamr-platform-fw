@@ -40,6 +40,13 @@ internals already cover each planned module, so they can be split out one at a t
   (`integral -= (pid − limit) / ki`) so `ki · integral` only ever supplies what is actually
   achievable. Unlike a static clamp or conditional freezing, this *bleeds* the windup out, so a
   long saturated rise no longer overshoots.
+- **`lib/pid/pid.h`** — declares `PID::reset()` (used by `pid.cpp`); without it the overlay
+  does not compile on the pinned base.
+- **`lib/encoder/encoder.h`** — period-method RPM in `getRPM()` (the window closes only on a new
+  edge; 150 ms without an edge reads as stopped) for fine low-speed resolution. PJRC Encoder
+  library, MIT.
+- **`firmware/platformio.ini`** — pins `teensy@5.1.0` and every library to the deployed build;
+  see [build & flash](../../../docs/flashing/build-and-flash.md).
 - **`src/firmware.ino`** — the 50 Hz control loop (upstream) plus:
   - a **velocity feedforward + PID** controller (the feedforward carries the holding PWM so the
     closed-loop response is speed-independent), a **small-window velocity estimator** and an
@@ -54,10 +61,10 @@ internals already cover each planned module, so they can be split out one at a t
     **runtime encoder ripple table** `/debug/enc_cal` (per-angle rpm correction loaded without a
     reflash).
 
-> The copies of `config/lino_base_config.h`, `lib/pid/pid.cpp`, and `src/firmware.ino` in this overlay
-> are the **deployed 2026-06-29 firmware** (feedforward + dither + runtime ripple-table). The
-> documentation in [`docs/`](../../../docs/) is the reference for the interface contract and matches
-> this code.
+> The overlay files (`config/lino_base_config.h`, `firmware/platformio.ini`, `lib/pid/pid.cpp`,
+> `lib/pid/pid.h`, `lib/encoder/encoder.h`, `src/firmware.ino`) are the **deployed 2026-06-29
+> firmware** (feedforward + dither + runtime ripple-table), confirmed in #13. The documentation in
+> [`docs/`](../../../docs/) is the reference for the interface contract and matches this code.
 
 ## Build & flash
 
