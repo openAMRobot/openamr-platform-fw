@@ -20,6 +20,8 @@ ABORT_READ_ONLY = 0x06010002
 ABORT_WRITE_ONLY = 0x06010001
 ABORT_BAD_VALUE = 0x06090030
 ABORT_GENERAL = 0x08000000
+ABORT_LOCAL_CONTROL = 0x08000021   # object written by a PDO only
+ABORT_DEVICE_STATE = 0x08000022    # write outside PRE-OPERATIONAL or during motion
 
 SIZE_CS = {1: 0x2F, 2: 0x2B, 4: 0x23}  # download request command byte by size
 CS_SIZE = {v: k for k, v in SIZE_CS.items()}
@@ -27,7 +29,11 @@ UPLOAD_RESP = {1: 0x4F, 2: 0x4B, 4: 0x43}
 
 
 class ObjectDict:
-    """index, sub -> dict(size, signed, value, rw)."""
+    """index, sub -> dict(size, signed, value, rw).
+
+    rw is "rw", "ro", "wo", "local" (SDO write refused with 0x08000021, PDO only) or "preop"
+    (SDO write only in PRE-OPERATIONAL, else 0x08000022).
+    """
 
     def __init__(self):
         self.entries = {}
@@ -64,6 +70,7 @@ class CanopenNode:
     """
 
     tick_s = 0.005
+    sdo_when_stopped = True  # CTL-017 sets False (no SDO in STOPPED); ZLAC behaviour not recorded
 
     def __init__(self, bus, node_id, heartbeat_ms=100, od=None):
         self.bus = bus
@@ -140,6 +147,8 @@ class CanopenNode:
                 self._nmt(msg.data[0])
             return
         if msg.arbitration_id == SDO_RX_BASE + self.node_id:
+            if self.nmt_state == NMT_STOPPED and not self.sdo_when_stopped:
+                return  # CiA 301: only NMT and heartbeat in STOPPED
             self.rx_count += 1
             self._sdo(msg)
             self.on_rx_frame(msg)
@@ -186,6 +195,12 @@ class CanopenNode:
                 return
             if entry["rw"] == "ro":
                 self._abort(index, sub, ABORT_READ_ONLY)
+                return
+            if entry["rw"] == "local":
+                self._abort(index, sub, ABORT_LOCAL_CONTROL)
+                return
+            if entry["rw"] == "preop" and self.nmt_state != NMT_PRE_OPERATIONAL:
+                self._abort(index, sub, ABORT_DEVICE_STATE)
                 return
             value = unpack_value(data[4:4 + size], entry["signed"])
             abort = self.on_write(index, sub, value)
