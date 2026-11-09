@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Commissioning record: the build refuses to move while wheel radius, track
 // width, acceleration limit or the ZLAC8015D ramp and link-loss settings are
-// placeholders (review of platform-fw #37, item 2 and 3).
+// placeholders.
 #include <gtest/gtest.h>
 
 #include <cmath>
