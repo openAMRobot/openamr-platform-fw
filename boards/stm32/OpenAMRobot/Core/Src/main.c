@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "port_board.h"
 
 /* USER CODE END Includes */
 
@@ -111,6 +112,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  /* Capture the reset cause before anything clears RCC_RSR. */
+  port_capture_reset_cause();
 
   /* USER CODE END 1 */
 
@@ -168,7 +171,9 @@ int main(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-  
+
+  /* Core, adapters, IWDG and the control tick (boards/stm32/OpenAMRobot/Port). */
+  port_app_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -179,6 +184,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    port_app_background();
   }
   /* USER CODE END 3 */
 }
@@ -338,6 +344,8 @@ static void MX_FDCAN1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN FDCAN1_Init 2 */
+  /* CAN1: ZLAC8015D, CANopen 11-bit identifiers. */
+  port_fdcan_start(&hfdcan1, false);
 
   /* USER CODE END FDCAN1_Init 2 */
 
@@ -391,6 +399,8 @@ static void MX_FDCAN2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN FDCAN2_Init 2 */
+  /* CAN2: Daly BMS, 29-bit identifiers. */
+  port_fdcan_start(&hfdcan2, true);
 
   /* USER CODE END FDCAN2_Init 2 */
 

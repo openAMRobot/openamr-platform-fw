@@ -46,14 +46,26 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
 )
 
+# Portable firmware core and adapters (firmware/), shared with the host tests
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../firmware/sources.cmake)
+
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    ${OAMR_FIRMWARE_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Src/port_app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Src/port_can.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Src/port_clock.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Src/port_spi.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Src/port_transport.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Src/port_watchdog.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    ${OAMR_FIRMWARE_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Inc
 )
 
 # Add project symbols (macros)
