@@ -37,7 +37,7 @@ void oamr_zlac_default_config(oamr_zlac_config_t *cfg)
     memset(cfg, 0, sizeof(*cfg));
     cfg->node_id = 1u;
     cfg->sdo_timeout_us = 50000u;        /* TODO(Evans) */
-    cfg->heartbeat_period_ms = 100u;     /* TODO(Evans) */
+    cfg->heartbeat_period_ms = 100u;     /* TODO(Evans), see oamr/commissioning.h */
     cfg->heartbeat_misses = 3u;
     cfg->comm_loss_protection_ms = 250u;
     cfg->accel_time_ms = 500u;           /* TODO(Evans): vendor default kept until ruled */
@@ -49,6 +49,15 @@ void oamr_zlac_default_config(oamr_zlac_config_t *cfg)
     cfg->invert_left = false;            /* TODO(Evans) */
     cfg->invert_right = false;           /* TODO(Evans) */
     cfg->max_rpm = 1000;
+}
+
+void oamr_zlac_apply_commissioning(oamr_zlac_config_t *cfg, const oamr_commissioning_record_t *r)
+{
+    cfg->accel_time_ms = r->zlac_accel_time_ms;
+    cfg->decel_time_ms = r->zlac_decel_time_ms;
+    cfg->comm_loss_protection_ms = r->zlac_comm_loss_protection_ms;
+    cfg->heartbeat_period_ms = r->zlac_heartbeat_period_ms;
+    cfg->heartbeat_misses = r->zlac_heartbeat_misses;
 }
 
 static void add_entry(oamr_zlac_t *z, uint16_t index, uint8_t sub, uint8_t size, uint32_t value)

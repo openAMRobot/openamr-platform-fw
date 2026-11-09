@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "fake_motor.h"
+#include "test_params.h"
 
 extern "C" {
 #include "oamr/motion.h"
@@ -20,6 +21,7 @@ protected:
     void SetUp() override
     {
         oamr_motion_default_config(&cfg);
+        commission_for_test(&cfg);  // test geometry, not hardware values
         oamr_motion_init(&m, &cfg);
         be = motor.backend();
     }

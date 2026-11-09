@@ -15,6 +15,7 @@ set(OAMR_FIRMWARE_INCLUDE_DIRS
 set(OAMR_FIRMWARE_SOURCES
     ${OAMR_FIRMWARE_DIR}/core/src/motion.c
     ${OAMR_FIRMWARE_DIR}/core/src/can_health.c
+    ${OAMR_FIRMWARE_DIR}/core/src/commissioning.c
     ${OAMR_FIRMWARE_DIR}/motor_controller_bridge/src/canopen_sdo.c
     ${OAMR_FIRMWARE_DIR}/motor_controller_bridge/src/zlac8015d.c
     ${OAMR_FIRMWARE_DIR}/sensor_bridge/src/icm42688.c

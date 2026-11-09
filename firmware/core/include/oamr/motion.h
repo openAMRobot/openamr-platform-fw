@@ -17,6 +17,10 @@
  *   checked on every tick at the only place where wheel targets are written.
  *   While it is false, zero is written. When it becomes true, every stored
  *   command is discarded and only a command received after that time is used.
+ * - Not commissioned (oamr_motion_config_t.commissioned false, see
+ *   oamr/commissioning.h): zero is written on every tick, whatever
+ *   motion_allowed says. The default configuration is not commissioned and
+ *   carries no wheel radius, track width or acceleration value.
  * - On timeout, inhibit, host loss or driver not ready the core writes zero at
  *   once; the drive's own deceleration ramp (6084h, configured at boot) then
  *   brings the wheels to rest. Nothing is ever replayed.
@@ -38,12 +42,13 @@ typedef struct {
     uint64_t host_timeout_us;       /* 500 ms host heartbeat (I8 WP) */
     float max_linear_m_s;           /* 0.5 m/s ceiling (P-03 item 29 / 30 A5) */
     float max_wheel_m_s;            /* 0.5 m/s per wheel */
-    float accel_limit_m_s2;         /* TODO(Evans): no ruling for acceleration; default = travel decel */
+    float accel_limit_m_s2;         /* TODO(Evans): no ruling; NaN until the commissioning record sets it */
     float decel_limit_m_s2;         /* 1.5 m/s^2 travel (P-03 item 30 A6) */
     float decel_limit_hold_m_s2;    /* 1.0 m/s^2 hold-and-move (P-03 item 30 A6) */
-    float wheel_radius_m;           /* TODO(Evans): measured 2.0 hub-motor wheel radius */
-    float track_width_m;            /* TODO(Evans): measured 2.0 track width */
+    float wheel_radius_m;           /* TODO(Evans): measured 2.0 wheel radius; NaN until commissioned */
+    float track_width_m;            /* TODO(Evans): measured 2.0 track width; NaN until commissioned */
     float max_ramp_dt_s;            /* longest tick gap credited to the ramp */
+    bool commissioned;              /* set only by oamr_commissioning_apply_motion() */
 } oamr_motion_config_t;
 
 typedef enum {
@@ -52,7 +57,8 @@ typedef enum {
     OAMR_APPLIED_TIMEOUT,           /* last command older than cmd_timeout_us */
     OAMR_APPLIED_HOST_LOST,         /* host heartbeat older than host_timeout_us */
     OAMR_APPLIED_DRIVER_NOT_READY,  /* motor backend not ready */
-    OAMR_APPLIED_INHIBITED          /* motion_allowed false */
+    OAMR_APPLIED_INHIBITED,         /* motion_allowed false */
+    OAMR_APPLIED_NOT_COMMISSIONED   /* wheel radius, track or acceleration not commissioned */
 } oamr_applied_state_t;
 
 /* The applied command (I8 rev 3: velocity actually sent after limits, ramp

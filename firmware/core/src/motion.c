@@ -11,12 +11,15 @@ void oamr_motion_default_config(oamr_motion_config_t *cfg)
     cfg->host_timeout_us = 500000u;
     cfg->max_linear_m_s = 0.5f;
     cfg->max_wheel_m_s = 0.5f;
-    cfg->accel_limit_m_s2 = 1.5f;      /* TODO(Evans): acceleration limit */
+    /* No placeholders: these three come only from the commissioning record
+     * (oamr/commissioning.h). TODO(Evans): measure and rule them. */
+    cfg->accel_limit_m_s2 = NAN;
     cfg->decel_limit_m_s2 = 1.5f;
     cfg->decel_limit_hold_m_s2 = 1.0f;
-    cfg->wheel_radius_m = 0.100f;      /* TODO(Evans): "about 0.1 m" (P-03 item 21); measure */
-    cfg->track_width_m = 0.400f;       /* TODO(Evans): roadmap model value; measure */
+    cfg->wheel_radius_m = NAN;
+    cfg->track_width_m = NAN;
     cfg->max_ramp_dt_s = 0.05f;
+    cfg->commissioned = false;
 }
 
 void oamr_motion_init(oamr_motion_t *m, const oamr_motion_config_t *cfg)
@@ -140,7 +143,11 @@ const oamr_motion_applied_t *oamr_motion_tick(oamr_motion_t *m, uint64_t now_us,
         m->counters.cmd_discarded_stale_on_entry++;
     }
 
-    if (!motion_allowed) {
+    const bool commissioned = m->cfg.commissioned;
+    if (!commissioned) {
+        state = OAMR_APPLIED_NOT_COMMISSIONED;
+        m->have_cmd = false;
+    } else if (!motion_allowed) {
         state = OAMR_APPLIED_INHIBITED;
         m->have_cmd = false;
     } else if (!driver_ready) {
@@ -167,12 +174,12 @@ const oamr_motion_applied_t *oamr_motion_tick(oamr_motion_t *m, uint64_t now_us,
     }
 
     /* Final gate, at the single write point. */
-    if (!motion_allowed) {
+    if (!motion_allowed || !commissioned) {
         m->out_left_m_s = 0.0f;
         m->out_right_m_s = 0.0f;
     }
 
-    const float inv_r = 1.0f / m->cfg.wheel_radius_m;
+    const float inv_r = commissioned ? 1.0f / m->cfg.wheel_radius_m : 0.0f;
     m->applied.state = state;
     m->applied.left_m_s = m->out_left_m_s;
     m->applied.right_m_s = m->out_right_m_s;

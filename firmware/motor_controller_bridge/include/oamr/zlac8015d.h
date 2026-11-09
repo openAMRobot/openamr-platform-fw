@@ -26,7 +26,8 @@
  * A drive fault latches until oamr_zlac_request_fault_reset() (controlword
  * 80h, then the enable sequence again). Never cleared automatically.
  * Heartbeat consumer: lost after `heartbeat_misses` producer periods; a
- * boot-up message re-runs the whole boot sequence.
+ * boot-up message re-runs the whole boot sequence. How the consumer time
+ * relates to 2000h is stated once, in oamr/commissioning.h.
  */
 #ifndef OAMR_ZLAC8015D_H
 #define OAMR_ZLAC8015D_H
@@ -35,6 +36,7 @@
 #include <stdint.h>
 
 #include "oamr/can.h"
+#include "oamr/commissioning.h"
 #include "oamr/canopen_sdo.h"
 #include "oamr/motor_backend.h"
 
@@ -77,9 +79,10 @@ typedef struct {
 typedef struct {
     uint8_t node_id;                     /* 1 (vendor default, 200Ah) */
     uint64_t sdo_timeout_us;             /* TODO(Evans): bench value */
-    uint16_t heartbeat_period_ms;        /* 1017h; TODO(Evans): proposed 100 ms (EDS default 500) */
-    uint8_t heartbeat_misses;            /* 3 (I8 WP) */
-    uint16_t comm_loss_protection_ms;    /* 2000h = 250 ms (work package; P-03 range 200 to 300) */
+    /* 1017h, 2000h and the consumer: see oamr/commissioning.h (TODO(Evans), D-24). */
+    uint16_t heartbeat_period_ms;        /* 1017h; proposed 100 ms (EDS default 500) */
+    uint8_t heartbeat_misses;            /* consumer time = misses x 1017h; 3 (I8 WP) */
+    uint16_t comm_loss_protection_ms;    /* 2000h; proposed 250 ms (roadmap: 200 to 300) */
     uint32_t accel_time_ms;              /* 6083h; TODO(Evans): value that gives the agreed ramp */
     uint32_t decel_time_ms;              /* 6084h; TODO(Evans): value that gives 1.5 m/s^2 */
     uint8_t object_2000_size;            /* TODO(Evans): 2 assumed, not in the EDS */
@@ -159,6 +162,9 @@ void oamr_zlac_request_fault_reset(oamr_zlac_t *z);
 /* Explicit retry after CONFIG_FAILED. */
 void oamr_zlac_request_reinit(oamr_zlac_t *z, uint64_t now_us);
 oamr_zlac_fault_t oamr_zlac_decode_fault(uint32_t raw);
+/* Take 6083h, 6084h, 2000h, 1017h and the consumer misses from the
+ * commissioning record. The caller checks the record is complete first. */
+void oamr_zlac_apply_commissioning(oamr_zlac_config_t *cfg, const oamr_commissioning_record_t *r);
 
 /* Motor backend binding for the motion core. The ready check uses `clock_ctx`
  * through the supplied now function. */

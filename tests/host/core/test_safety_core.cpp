@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include "fake_motor.h"
+#include "test_params.h"
 
 extern "C" {
 #include "oamr/motion.h"
@@ -400,6 +401,7 @@ TEST_F(Bench, T12_NoMotionFromStaleCommands)
 {
     oamr_motion_config_t mc;
     oamr_motion_default_config(&mc);
+    commission_for_test(&mc);  // test geometry, not hardware values
     oamr_motion_t m;
     oamr_motion_init(&m, &mc);
     FakeMotor motor;
