@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <deque>
 
 #include "fake_can.h"
 
@@ -333,6 +334,55 @@ TEST_F(Zlac, BackendBindingForMotionCore)
     EXPECT_TRUE(be.is_ready(be.ctx));
     be.set_wheel_velocity(be.ctx, 2.0f, 2.0f);
     EXPECT_EQ(z.target_rpm_left, 19);
+}
+
+}  // namespace
+
+namespace {
+
+// Port timing model: the NUCLEO port drains CAN1 once per 20 ms control tick,
+// so an SDO response is processed one tick after its request. The adapter
+// then completes one transfer per tick and the six-transfer operational
+// cycle (60FFh:1, 60FFh:2, 606Ch:1, 606Ch:2, 603Fh, 6041h) takes six ticks.
+// This test records that latency so a change to the transport (RPDO, or the
+// synchronous 60FFh:3 write) can be measured against it. TODO(Evans).
+TEST_F(Zlac, PortTimingOneTransferPerTick)
+{
+    boot_to_operational();
+    std::deque<oamr_can_frame_t> rx;  // responses waiting for the next tick
+    auto port_tick = [&]() {
+        now += 20 * MS;
+        if (now - last_hb >= 100 * MS) {
+            heartbeat();
+            last_hb = now;
+        }
+        while (!rx.empty()) {  // drain at the start of the tick, like port_app.c
+            oamr_zlac_on_frame(&z, &rx.front(), now);
+            rx.pop_front();
+        }
+        oamr_zlac_tick(&z, now);
+        while (!can.pending.empty()) {
+            const oamr_can_frame_t f = can.pending.front();
+            can.pending.pop_front();
+            for (const auto &r : node.handle(f)) rx.push_back(r);
+        }
+    };
+    // Let the cycle settle into the port rhythm.
+    for (int i = 0; i < 12; i++) port_tick();
+    oamr_zlac_set_velocity(&z, 10.0f, 10.0f);
+    int ticks_left = -1, ticks_right = -1;
+    for (int i = 1; i <= 12 && ticks_right < 0; i++) {
+        port_tick();
+        if (ticks_left < 0 && static_cast<int32_t>(node.get(0x60FF, 1)) == 95) ticks_left = i;
+        if (ticks_right < 0 && static_cast<int32_t>(node.get(0x60FF, 2)) == 95) ticks_right = i;
+    }
+    ASSERT_GT(ticks_left, 0);
+    ASSERT_GT(ticks_right, 0);
+    // Worst case: the new target waits for the rest of the cycle (up to six
+    // ticks), and the right side follows the left one tick later.
+    EXPECT_LE(ticks_left, 6);
+    EXPECT_EQ(ticks_right, ticks_left + 1);
+    EXPECT_TRUE(oamr_zlac_ready(&z, now));
 }
 
 }  // namespace
