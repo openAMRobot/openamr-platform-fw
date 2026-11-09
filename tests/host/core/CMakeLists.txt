@@ -34,7 +34,7 @@ add_link_options(${SANITIZERS})
 
 # The firmware code is C11 and compiled exactly as on the target, plus the
 # stricter warnings below.
-add_library(oamr_firmware STATIC ${OAMR_FIRMWARE_SOURCES})
+add_library(oamr_firmware STATIC ${OAMR_FIRMWARE_SOURCES} ${OAMR_APP_SOURCES})
 target_include_directories(oamr_firmware PUBLIC ${OAMR_FIRMWARE_INCLUDE_DIRS})
 target_compile_options(oamr_firmware PRIVATE -Wshadow -Wconversion -Wno-sign-conversion -Wstrict-prototypes)
 target_link_libraries(oamr_firmware PUBLIC m)
