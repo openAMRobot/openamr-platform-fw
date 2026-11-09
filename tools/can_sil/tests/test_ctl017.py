@@ -94,7 +94,7 @@ def homed_node(make_node, core):
 
 
 def test_heartbeat_and_initial_status(make_node, core):
-    node = make_node()
+    make_node()
     drain(core.bus)
     frames = collect(core.bus, 0.45)
     assert len([f for f in frames if f.arbitration_id == 0x710]) >= 4

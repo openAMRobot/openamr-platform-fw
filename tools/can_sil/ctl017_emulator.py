@@ -69,6 +69,7 @@ MOVING_CURRENT_MA = 1000    # simulation placeholder only, TODO(Evans): measure 
 class Ctl017Emulator(CanopenNode):
     def __init__(self, bus, node_id=NODE_ID, start_pos_mm=None):
         super().__init__(bus, node_id, HEARTBEAT_MS, ObjectDict())
+        self.od.add(0x1000, 0, 4, 0, rw="ro")  # device type, TODO(Evans): custom profile number
         self.od.add(0x1003, 0, 1, 0, rw="ro")
         self.od.add(0x1003, 1, 4, 0, rw="ro")
         self.od.add(0x2200, 0, 4, 0, rw="ro")

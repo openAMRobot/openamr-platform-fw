@@ -12,7 +12,7 @@ hardware. Where the real behaviour is not recorded, the emulator says so with `T
 | `canopen_common.py` | NMT, heartbeat producer, expedited SDO server and a small SDO client |
 | `zlac8015d_emulator.py` | One ZLAC8015D V4.x node (node 1): 6040h, 6041h, 6060h, 60FFh, 606Ch, 6083h, 6084h, 605Ah, 6085h, 603Fh, 2000h, 2010h |
 | `ctl017_emulator.py` | CTL-017 lift node 0x10: motor model (18 mm/s, 350 mm), Hall counts, three stop sensors, travel timeout, head light and Getac outputs. Object dictionary is a proposal, `TODO(Evans)` |
-| `tests/` | pytest suite (36 tests, about 1 minute) |
+| `tests/` | pytest suite (50 tests, about 1 minute; includes the bench scripts) |
 
 ## Run the tests
 

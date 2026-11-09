@@ -51,6 +51,7 @@ class Zlac8015dEmulator(CanopenNode):
     def __init__(self, bus, node_id=1, heartbeat_ms=100):
         super().__init__(bus, node_id, heartbeat_ms, ObjectDict())
         od = self.od
+        od.add(0x1000, 0, 4, 0, rw="ro")  # device type, TODO(Evans): real value not recorded
         od.add(0x6040, 0, 2, 0)
         od.add(0x6041, 0, 2, 0, rw="ro")
         od.add(0x6060, 0, 1, 3, signed=True)
