@@ -76,5 +76,10 @@ target_include_directories(oamr_base_host PRIVATE src uros ${UROS_INCLUDES} ${_r
 target_compile_options(oamr_base_host PRIVATE -Wall -Wextra -Werror)
 target_link_directories(oamr_base_host PRIVATE ${UROS_LIBDIRS} ${ROS_PREFIX}/lib)
 target_link_libraries(oamr_base_host PRIVATE oamr_fw ${UROS_LIBS} pthread m)
+# Run without sourcing the micro-ROS workspace: every library directory in the
+# rpath (target_link_directories alone does not add them).
 set(_rpath ${UROS_LIBDIRS} ${ROS_PREFIX}/lib)
-set_target_properties(oamr_base_host PROPERTIES BUILD_RPATH "${_rpath}")
+set_target_properties(oamr_base_host PROPERTIES
+    BUILD_RPATH "${_rpath}"
+    SKIP_BUILD_RPATH OFF)
+target_link_options(oamr_base_host PRIVATE -Wl,--disable-new-dtags)

@@ -16,7 +16,7 @@
  *   sub  /cmd_vel           geometry_msgs/Twist
  *   pub  /base/status       10 Hz heartbeat + on change, reliable, transient-local depth 1
  *   pub  /base/aux_status   5 Hz heartbeat, reliable, transient-local depth 1
- *   pub  /odom/unfiltered   nav_msgs/Odometry, odom -> base_footprint
+ *   pub  /odom/unfiltered   nav_msgs/Odometry, odom -> base_footprint, reliable (MTU)
  *   pub  /imu/data_raw      sensor_msgs/Imu, frame imu_link, every valid sample
  * Message types: openamr_base_msgs does not exist yet (interfaces #30/#31), so
  * both status topics carry a LOCAL STAND-IN, diagnostic_msgs/DiagnosticStatus

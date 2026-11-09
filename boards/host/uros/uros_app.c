@@ -166,7 +166,10 @@ static bool create_entities(void)
                    &s_pub_aux, &s_node,
                    ROSIDL_GET_MSG_TYPE_SUPPORT(diagnostic_msgs, msg, DiagnosticStatus),
                    "base/aux_status", &sq) == RCL_RET_OK;
-    ok = ok && rclc_publisher_init_best_effort(
+    /* Odometry (~720 B serialized) is larger than the 512 B XRCE-DDS MTU and
+     * only reliable streams fragment, so it uses a reliable writer.
+     * TODO(Evans): on the STM32, either keep it reliable or raise the MTU. */
+    ok = ok && rclc_publisher_init_default(
                    &s_pub_odom, &s_node, ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
                    "odom/unfiltered") == RCL_RET_OK;
     ok = ok && rclc_publisher_init_best_effort(
