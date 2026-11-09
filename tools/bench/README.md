@@ -28,7 +28,9 @@ on `vcan` before they are used on hardware.
 ## Motion rules
 
 - Every script that can turn a wheel refuses to run without `--wheels-up-confirmed` and `--wheel-diameter-m`.
-- Commanded speed is capped at 0.1 m/s. A higher request is reduced and a warning is printed.
+- Commanded speed up to 0.1 m/s is used as given; 0.1 to 0.2 m/s is capped to 0.1 m/s with a
+  warning; above 0.2 m/s the script refuses (exit 2, nothing sent) unless `--allow-high-speed`
+  is given, and never above the 0.5 m/s ceiling.
 - The hardwired E-stop is the stop. These scripts are not a safety function.
 
 ## Setup
