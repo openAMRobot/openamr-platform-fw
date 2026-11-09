@@ -22,6 +22,8 @@ Status: **proposal** for the firmware owner to adopt, adapt or reject. Build-ver
 5. ZLAC8015D adapter tick (SDO cycle), Daly request.
 6. Feed IWDG1. Nowhere else feeds it.
 
+IWDG and debugger, for the owner to confirm (`Port/Src/port_watchdog.c`): IWDG1 runs from the LSI with prescaler /32 and reload = `PORT_IWDG_TIMEOUT_MS` (100 ms, TODO(Evans)). In the Debug build only, `DBGMCU_APB4FZ1_DBG_IWDG1` freezes the watchdog while the core is halted, so a breakpoint does not reset the MCU. A halted core sends nothing on CAN1, so during a breakpoint the wheels are stopped only by the drive's own 2000h link-loss time. That is why the ZLAC adapter is not started until 2000h is in the commissioning record. The Release build does not set the freeze bit. Per the I8 baseline, no bench motion with powered debug except wheels up.
+
 The background loop polls the IMU (until INT1 is assigned) and will run the micro-ROS executor over the serial transport hook (USART3 on the ST-LINK virtual COM port).
 
 ## Command path (`firmware/core/src/motion.c`)
