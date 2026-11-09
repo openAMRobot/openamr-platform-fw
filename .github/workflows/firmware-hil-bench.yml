@@ -75,8 +75,11 @@ jobs:
       - name: Flash the STM32 Debug image recorded by the nightly
         id: image
         run: |
-          image=$(ls nightly/firmware/*-debug.hex | head -1)
-          sha=$(awk -v f="$(basename "$image")" '$2 == f {print $1}' nightly/SHA256SUMS)
+          set -euo pipefail
+          python3 tools/hil/verify_firmware.py --bundle nightly \
+            --repository openAMRobot/openamr-platform-fw --sha "$FIRMWARE_SHA" --output selected-image.json
+          image=$(python3 -c 'import json; print(json.load(open("selected-image.json"))["image"])')
+          sha=$(python3 -c 'import json; print(json.load(open("selected-image.json"))["sha256"])')
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
           python3 tools/hil/flash.py --target stm32 --image "$image" --sha256 "$sha"
 
