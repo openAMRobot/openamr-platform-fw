@@ -27,6 +27,8 @@ protected:
     {
         oamr_sc_default_config(&cfg);
         oamr_sc_init(&sc, &cfg);
+        in = oamr_sc_inputs_t{};
+        prev_reset_raw = false;
         in.gpio_valid = true;
         in.safety_ok = false;
         in.estop_column = OAMR_SC_COLUMN_RELEASED;
