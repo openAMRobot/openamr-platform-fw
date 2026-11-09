@@ -5,7 +5,10 @@ Proves: the drive accepts the enable sequence and a velocity command, and the wh
 the commanded speed (read back from 606Ch). Used as the load for zlac_link_loss_test.md.
 
 Safety: refuses to run without --wheels-up-confirmed (both drive wheels off the ground) and
---wheel-diameter-m. Speed above 0.1 m/s is capped to 0.1 m/s. The command is refreshed every
+--wheel-diameter-m. Speed up to 0.1 m/s is used as given, 0.1 to 0.2 m/s is capped to
+0.1 m/s with a warning, and above 0.2 m/s the script refuses (exit 2) unless
+--allow-high-speed is given (then the 0.1 m/s cap is lifted, never above the 0.5 m/s
+ceiling), so a typo cannot start a ceiling-speed spin. The command is refreshed every
 100 ms. At the end, and on any error or Ctrl-C, it writes 0 speed and 6040h = 0x06 (disable).
 Hardwired E-stop remains the stop; this script is not a safety function.
 
@@ -31,7 +34,7 @@ def main():
     add_motion_args(ap)
     args = ap.parse_args()
     require_motion_allowed(args)
-    rpm = speed_to_rpm(args.speed, args.wheel_diameter_m)
+    rpm = speed_to_rpm(args.speed, args.wheel_diameter_m, args.allow_high_speed)
     bus = open_bus(args.channel)
     sdo = SdoClient(bus, args.node_id, timeout=0.5)
     measured = None

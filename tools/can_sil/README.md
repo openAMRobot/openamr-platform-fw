@@ -11,7 +11,7 @@ hardware. Where the real behaviour is not recorded, the emulator says so with `T
 |---|---|
 | `canopen_common.py` | NMT, heartbeat producer, expedited SDO server and a small SDO client |
 | `zlac8015d_emulator.py` | One ZLAC8015D V4.x node (node 1): 6040h, 6041h, 6060h, 60FFh, 606Ch, 6083h, 6084h, 605Ah, 6085h, 603Fh, 2000h, 2010h |
-| `ctl017_emulator.py` | CTL-017 lift node 0x10: motor model (18 mm/s, 350 mm), Hall counts, three stop sensors, travel timeout, head light and Getac outputs. Object dictionary is a proposal, `TODO(Evans)` |
+| `ctl017_emulator.py` | CTL-017 lift node 0x10: motor model (18 mm/s), Hall counts, three stop sensors, travel timeout, head light and Getac outputs. Object dictionary from the #15 proposal (`ctl017_od_v1.py`), `TODO(Evans)` |
 | `tests/` | pytest suite (50 tests, about 1 minute; includes the bench scripts) |
 
 ## Run the tests
@@ -48,14 +48,30 @@ ZLAC8015D:
   the drive until 6040h = 0x80.
 - 6083h and 6084h are read as ms to ramp 0 to 1000 r/min (`TODO(Evans)`: confirm the vendor definition).
 
-CTL-017 (follows D1 to D20 of platform-fw #12; every other detail is `TODO(Evans)`):
+CTL-017 (follows the v1 proposal of openamr-upperbody-fw #15 and D1 to D20 of platform-fw #12;
+the dictionary is a proposal, `TODO(Evans)`):
 
-- RPDO1 0x210 command, TPDO1 0x190 status (8 bytes, 100 ms and on change), TPDO2 0x290,
-  RPDO2 0x310 outputs, EMCY 0x090, heartbeat 0x710. Core heartbeat 0x701 is consumed.
-- The node stops with F07 when the command keep-alive or the core heartbeat is missing for
-  300 ms during a move or homing (D12 alternative a). Faults are a latched bitmask.
-- Stall (no Hall pulses while driving) gives F03, a Hall count that disagrees with a stop
-  sensor gives F02, a travel timeout gives F04. Homing goes down to the lower switch (D10).
+- The object dictionary is generated into `ctl017_od_v1.py` by `gen_ctl017_od.py` from the
+  table in the #15 dictionary document. When Evans adopts or changes it, regenerate and
+  adjust the behaviour in `ctl017_emulator.py`. `tests/test_ctl017_od.py` pins the layout.
+- Boots in PRE-OPERATIONAL with a boot-up message; PDOs run only after NMT start. SDO is
+  refused in STOPPED. 2010h is writable by RPDO1 only (abort 0x08000021). Parameters
+  (2100h, 2101h, PDO timing) are written only in PRE-OPERATIONAL at standstill (0x08000022).
+- RPDO1 0x210 command, TPDO1 0x190 status, TPDO2 0x290 (inputs, target, current, velocity,
+  F01 to F08 byte, aux flags), RPDO2 0x310 (light on, dim level, Getac), EMCY 0x090 (code
+  0xFF00+n, error register, fault number, fault mask), heartbeat 0x710, core heartbeat 0x701
+  consumed (1016h:01, 300 ms) and RPDO1 deadline 1400h:05 (300 ms), both programmable.
+- F07 when the keep-alive or the core heartbeat is missing during a move or homing (D12
+  alternative a). Leaving OPERATIONAL halts the lift without a fault.
+- F01 both end switches, F02 Hall/sensor disagreement or wrong direction, F03 stall or
+  over-current, F04 travel timeout, F05 Hall supply lost while moving, F09 two stop sensors.
+  Hall supply lost at standstill clears the position without a fault. CLEAR_FAULT keeps a
+  fault whose condition still holds (result 7) and F01, F02, F05, F09 need homing after.
+- Plant values (stroke, sensor positions, Hall mm per count, current while moving) are
+  simulation placeholders, `TODO(Evans)`.
+
+Bench speed guard (`tools/bench`): up to 0.1 m/s as given, 0.1 to 0.2 m/s capped with a
+warning, above 0.2 m/s refused (exit 2) unless `--allow-high-speed`, never above 0.5 m/s.
 
 ## Limits
 

@@ -12,6 +12,9 @@ from zlac8015d_emulator import Zlac8015dEmulator
 BENCH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bench"))
 
 
+sys.path.insert(0, BENCH)
+
+
 def run(script, *args, timeout=30):
     return subprocess.run([sys.executable, os.path.join(BENCH, script), *args],
                           capture_output=True, text=True, timeout=timeout,
@@ -90,16 +93,66 @@ def test_spin_refuses_without_wheel_diameter(vcan, zlac):
     assert zlac.od.get(0x6040, 0) == 0
 
 
-def test_spin_caps_speed_and_stops_at_end(vcan, zlac):
+def test_spin_caps_speed_between_cap_and_refusal_limit(vcan, zlac):
     d = 0.2
     r = run("zlac_spin.py", vcan, "--wheels-up-confirmed", "--wheel-diameter-m", str(d),
-            "--speed", "0.5", "--duration", "2.5")
+            "--speed", "0.15", "--duration", "2.5")
     assert "capped" in r.stderr
     assert r.returncode == 0, r.stdout + r.stderr
     cap_rpm = 0.1 / (3.14159265 * d) * 60
     assert zlac.od.get(0x60FF, 1) == 0  # stop written at the end
     assert zlac.od.get(0x6040, 0) == 0x06
     assert f"commanded {round(cap_rpm)} r/min" in r.stdout
+
+
+@pytest.mark.parametrize("speed", ["0.5", "-0.5", "0.21", "2.0"])
+def test_spin_refuses_above_0p2_without_flag(vcan, zlac, speed):
+    r = run("zlac_spin.py", vcan, "--wheels-up-confirmed", "--wheel-diameter-m", "0.2",
+            "--speed", speed, "--duration", "1")
+    assert r.returncode == 2
+    assert "refusing" in r.stderr
+    if float(speed) <= 0.5:
+        assert "--allow-high-speed" in r.stderr
+    assert zlac.od.get(0x6040, 0) == 0  # nothing was sent to the drive
+    assert zlac.od.get(0x60FF, 1) == 0 and zlac.rx_count == 0
+
+
+def test_spin_high_speed_flag_allows_0p3_but_never_above_ceiling(vcan, zlac):
+    d = 0.2
+    r = run("zlac_spin.py", vcan, "--wheels-up-confirmed", "--wheel-diameter-m", str(d),
+            "--speed", "0.3", "--duration", "2.5", "--allow-high-speed")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"commanded {round(0.3 / (3.14159265 * d) * 60)} r/min" in r.stdout
+    zlac.rx_count = 0
+    r = run("zlac_spin.py", vcan, "--wheels-up-confirmed", "--wheel-diameter-m", str(d),
+            "--speed", "0.6", "--duration", "1", "--allow-high-speed")
+    assert r.returncode == 2 and "ceiling" in r.stderr
+    assert zlac.rx_count == 0
+
+
+def test_speed_to_rpm_boundaries():
+    import bench_common as b
+    d = 0.2
+    one = b.speed_to_rpm(0.1, d)
+    assert b.speed_to_rpm(0.2, d) == one  # capped to 0.1
+    assert b.speed_to_rpm(-0.15, d) == -one
+    with pytest.raises(SystemExit) as e:
+        b.speed_to_rpm(0.2001, d)
+    assert e.value.code == 2
+    assert b.speed_to_rpm(0.5, d, allow_high_speed=True) == round(0.5 / (3.14159265 * d) * 60)
+    with pytest.raises(SystemExit):
+        b.speed_to_rpm(0.5001, d, allow_high_speed=True)
+
+
+def test_no_python_cache_is_tracked():
+    out = subprocess.run(["git", "ls-files"], capture_output=True, text=True,
+                         cwd=os.path.dirname(BENCH))
+    if out.returncode != 0:
+        pytest.skip("not a git checkout")
+    tracked = [f for f in out.stdout.split() if "__pycache__" in f or f.endswith(".pyc")]
+    assert tracked == []
+    ignore = open(os.path.join(BENCH, "..", "..", ".gitignore")).read()
+    assert "__pycache__/" in ignore
 
 
 def test_spin_then_link_loss_protection_stops_wheels(vcan, zlac):

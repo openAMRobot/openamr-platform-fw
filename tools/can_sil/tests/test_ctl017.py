@@ -71,8 +71,8 @@ class Core:
 def make_node(make_bus):
     nodes = []
 
-    def factory(start=None):
-        n = c.Ctl017Emulator(make_bus(), start_pos_mm=start).start()
+    def factory(start=None, operational=True):
+        n = c.Ctl017Emulator(make_bus(), start_pos_mm=start, operational=operational).start()
         nodes.append(n)
         return n
     yield factory
@@ -85,11 +85,15 @@ def core(master):
     return Core(master)
 
 
-def homed_node(make_node, core):
-    node = make_node()
+def nmt_start(bus, node=c.NODE_ID):
+    bus.send(can.Message(arbitration_id=0, data=[0x01, node], is_extended_id=False))
+
+
+def homed_node(make_node, core, start=30.0):
+    node = make_node(start=start)  # near the lower end so homing is quick (9 mm/s homing speed)
     core.pump(0.2)
     core.send_cmd(c.OP_START_HOMING)
-    assert core.until(lambda s: s["state"] == c.IDLE)
+    assert core.until(lambda s: s["state"] == c.IDLE, 25.0)
     return node
 
 
@@ -140,8 +144,8 @@ def test_homing_then_moves_to_each_stop(make_node, core):
         assert core.status["stop"] == 0xFF
         assert core.until(lambda s: s["state"] == c.IDLE and s["stop"] == stop, 30.0)
         assert core.status["flags"] & c.F_AT_STOP
-        assert abs(node.counted - c.STOP_POS_MM[stop]) < 1e-6
-        assert abs(node.hall_count * c.MM_PER_HALL - c.STOP_POS_MM[stop]) < c.MM_PER_HALL
+        assert abs(node.counted - c.STOP_POS_MM[stop]) < c.MM_PER_HALL * 2
+        assert abs(node.true_mm - c.SENSOR_POS_MM[stop]) <= c.SENSOR_WINDOW_MM + c.MM_PER_HALL
 
 
 def test_motor_model_speed(make_node, core):
@@ -161,8 +165,9 @@ def test_stop_sensors_and_head_light_getac(make_node, core):
     core.pump(0.2)
     assert core.status["state"] == c.IDLE  # powered at a sensor: valid without homing
     assert node.sensors() == 0b010
-    core.bus.send(can.Message(arbitration_id=c.RPDO2, data=[60, 1], is_extended_id=False))
-    assert wait_for(lambda: node.getac_enable == 1 and node.head_light == 60)
+    core.bus.send(can.Message(arbitration_id=c.RPDO2, data=[1, 60, 1], is_extended_id=False))
+    assert wait_for(lambda: node.getac_enable == 1 and node.head_light_on == 1
+                    and node.head_light_dim == 60)
 
 
 def test_repeated_command_is_keepalive_and_conflict_rejected(make_node, core):
@@ -211,11 +216,11 @@ def test_keepalive_loss_raises_f07_and_stops(make_node, core):
     core.keepalive = False
     assert core.until(lambda s: s["state"] == c.FAULT, 1.5)
     assert c.F07 in core.emcy
-    assert node.target_mm is None
+    assert node.target_stop == 0xFF
     pos = node.counted
     core.pump(0.3)
     assert node.counted == pos  # no resume
-    assert wait_for(lambda: node.od.get(0x1003, 1) == 1 << (c.F07 - 1))
+    assert wait_for(lambda: node.od.get(0x2002, 0) == 1 << (c.F07 - 1))
 
 
 def test_core_heartbeat_loss_raises_f07(make_node, core):
@@ -268,7 +273,8 @@ def test_two_sensors_active_is_fault(make_node, core):
     node = homed_node(make_node, core)
     node.forced_sensors = 0b101
     assert core.until(lambda s: s["state"] == c.FAULT, 1.0)
-    assert c.F02 in core.emcy
+    assert c.F09 in core.emcy  # #15: F09 is the two-sensors fault
+    assert core.status["flags"] & c.F_RECOVERY
 
 
 def test_motor_power_absent_rejects_homing(make_node, core):
@@ -296,6 +302,10 @@ def test_node_power_cycle_requires_rehoming(make_node, core):
     node = homed_node(make_node, core)
     core.cmd = None  # a core must stop its keep-alive when the node restarts
     node.power_cycle(start_pos_mm=100.0)
+    core.status = None
+    core.pump(0.3)
+    assert core.status is None  # PRE-OPERATIONAL: no TPDO until the core sends NMT start
+    nmt_start(core.bus)
     core.pump(0.3)
     assert core.status["state"] == c.UNHOMED
     assert core.status["result"] == 0xFF
@@ -305,7 +315,7 @@ def test_node_power_cycle_requires_rehoming(make_node, core):
 def test_sdo_hall_count_and_bus_off(master, make_node, core):
     node = make_node(start=c.STOP_POS_MM[2])
     sdo = SdoClient(master, c.NODE_ID)
-    assert sdo.read(0x2200, 0) == int(round(c.STOP_POS_MM[2] / c.MM_PER_HALL))
+    assert sdo.read(0x2300, 1, signed=True) == node.hall_count
     drain(master)
     node.set_bus_off(True)
     time.sleep(0.05)
