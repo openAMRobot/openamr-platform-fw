@@ -36,9 +36,24 @@ The background loop polls the IMU (until INT1 is assigned) and will run the micr
 
 On timeout, inhibit, host loss or driver not ready the core writes zero at once and the drive's own deceleration (6084h) brings the wheels to rest. Nothing is replayed.
 
+## Commissioning record: no motion on placeholders
+
+`firmware/core/include/oamr/commissioning.h` defines the values without which the base must not move; the board fills them in `boards/stm32/OpenAMRobot/Port/Inc/port_commissioning.h`, where every field is unset today.
+
+| Missing | Effect |
+|---|---|
+| Wheel radius, track width or acceleration limit | Motion core state `NOT_COMMISSIONED`, zero written every tick. The port holds Software Stop asserted, so the safety core stays LOCKED and the RESET lamp stays on. |
+| ZLAC8015D ramps (6083h/6084h) or link-loss block (2000h, 1017h, consumer misses) | As above, and the ZLAC adapter is not started: nothing is sent on CAN1, nothing is written or saved (2010h) on the drive. |
+
+The motion defaults are NaN, not numbers: there is no 0.100 m, 0.400 m or 1.5 m/s² anywhere in the firmware. Host tests use explicit test-only values (`tests/host/core/test_params.h`).
+
+The relationship between 2000h and the STM32 heartbeat consumer is stated once, in the header comment of `oamr/commissioning.h`. In short: 2000h is the drive stopping itself when the STM32 goes silent (accepted range 200 to 300 ms, roadmap risk 2); the consumer (misses × 1017h, at least 3 misses) is the STM32 noticing the drive went silent. They guard different failures and are both required. TODO(Evans): rule all three values under D-24.
+
 ## ZLAC8015D boot configuration (proposal for decision D-24, P-03 item 30 A4)
 
-NMT pre-operational, then for each entry: read; write only if different; read back; latch `CONFIG_FAILED` on mismatch or abort. Save with 2010h only if something was written. Targets zeroed, NMT start, controlword 06h, 07h, 0Fh, statusword checked. Entries: 6060h = 3, 6083h:1/2 and 6084h:1/2, 2000h = 250 ms, 1017h. Heartbeat consumer: three missed periods. Drive faults (603Fh, decoded per side) latch until an explicit fault reset.
+NMT pre-operational, then for each entry: read; write only if different; read back; latch `CONFIG_FAILED` on mismatch or abort. Save with 2010h only if something was written. Targets zeroed, NMT start, controlword 06h, 07h, 0Fh, statusword checked. Entries: 6060h = 3, 6083h:1/2 and 6084h:1/2, 2000h, 1017h, all from the commissioning record. Heartbeat consumer: misses × 1017h (see above).
+
+Command latency: the port drains CAN1 once per 20 ms tick and the adapter completes one SDO transfer per tick, so a new wheel target reaches the drive up to six ticks (120 ms) later, the right wheel one tick after the left (`Zlac.PortTimingOneTransferPerTick`). TODO(Evans): decide whether to move 60FFh to an RPDO or the synchronous 60FFh:3 write before motion tests. Drive faults (603Fh, decoded per side) latch until an explicit fault reset.
 
 ## Open parameters (TODO(Evans))
 
@@ -46,9 +61,11 @@ NMT pre-operational, then for each entry: read; write only if different; read ba
 |---|---|---|
 | Six safety and charging pins, polarity | `Port/Inc/port_board.h` | unassigned: base stays LOCKED |
 | IMU INT1 EXTI pin | `Port/Inc/port_board.h` | unassigned: IMU polled |
-| Wheel radius, track width | `motion.c` | 0.100 m, 0.400 m |
-| Acceleration limit | `motion.c` | 1.5 m/s² |
-| 6083h / 6084h times, 1017h period | `zlac8015d.c` | 500 ms, 500 ms, 100 ms |
+| Wheel radius, track width | `port_commissioning.h` | unset: base stays LOCKED |
+| Acceleration limit | `port_commissioning.h` | unset: base stays LOCKED |
+| 6083h / 6084h times | `port_commissioning.h` | unset: ZLAC not started |
+| 2000h, 1017h period, consumer misses (D-24) | `port_commissioning.h` | unset: ZLAC not started (first-pass proposal 250 ms, 100 ms, 3) |
+| SDO vs RPDO for 60FFh (command latency) | `zlac8015d.c` | SDO, up to 120 ms |
 | Size of 2000h and 2010h, save value | `zlac8015d.c` | 2 bytes, 1 |
 | Quick stop 605Ah / 6085h | `zlac8015d.c` | not configured |
 | Wheel direction (invert left/right) | `zlac8015d.c` | not inverted |
