@@ -104,6 +104,8 @@ typedef struct {
     bool motion_allowed;
     bool reset_lamp;
     bool charge_request;
+    oamr_sc_column_estop_t estop_column;   /* second E-stop as last observed */
+    bool estop_column_fresh;
     /* command and host link */
     bool host_link_ok;
     oamr_motion_applied_t applied;

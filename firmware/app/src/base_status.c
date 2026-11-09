@@ -35,6 +35,9 @@ void oamr_app_snapshot(const oamr_app_t *app, uint64_t now_us, oamr_app_status_t
     s->motion_allowed = sc->motion_allowed;
     s->reset_lamp = sc->reset_lamp;
     s->charge_request = sc->charge_request;
+    s->estop_column = app->sc_in.estop_column;
+    s->estop_column_fresh = app->sc_in.estop_column_seen && now_us >= app->sc_in.estop_column_rx_us &&
+                            (now_us - app->sc_in.estop_column_rx_us) < app->safety.cfg.column_estop_stale_us;
 
     s->host_link_ok = app->host_seen && now_us >= app->host_rx_us &&
                       (now_us - app->host_rx_us) < app->motion.cfg.host_timeout_us;
