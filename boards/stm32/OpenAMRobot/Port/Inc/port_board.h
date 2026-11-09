@@ -66,6 +66,10 @@ void port_on_host_heartbeat(void);
 void port_on_sw_stop(bool asserted);
 void port_on_charge_command(bool requested);
 
+/* OAMR_COMM_* bits still missing from the commissioning record (0 = complete),
+ * for /base/status once the micro-ROS client exists. */
+uint32_t port_commissioning_missing(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -64,3 +64,8 @@ void oamr_commissioning_apply_motion(const oamr_commissioning_record_t *r,
     cfg->accel_limit_m_s2 = r->accel_limit_m_s2;
     cfg->commissioned = true;
 }
+
+bool oamr_commissioning_sw_stop(const oamr_commissioning_record_t *r, bool host_sw_stop)
+{
+    return host_sw_stop || !oamr_commissioning_complete(r);
+}

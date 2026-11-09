@@ -11,6 +11,7 @@
 extern "C" {
 #include "oamr/commissioning.h"
 #include "oamr/motion.h"
+#include "oamr/safety_core.h"
 #include "oamr/zlac8015d.h"
 }
 
@@ -212,3 +213,58 @@ TEST(Commissioning, CommissionedMotionCoreMoves)
 }
 
 }  // namespace
+
+// Port composition: an incomplete record asserts Software Stop towards the
+// safety core, so it never leaves LOCKED, even with healthy inputs, the host
+// Stop released and a RESET press. The record is a compile-time constant in
+// the port; it cannot complete at runtime. The second half only shows that a
+// complete record removes nothing but this Stop (E-01 rev 3 rules apply).
+TEST(CommissioningPort, IncompleteRecordKeepsSafetyCoreLocked)
+{
+    oamr_sc_config_t scc;
+    oamr_sc_default_config(&scc);
+    oamr_sc_t sc;
+    oamr_sc_init(&sc, &scc);
+    oamr_sc_inputs_t in{};
+    in.gpio_valid = true;
+    in.estop_column = OAMR_SC_COLUMN_RELEASED;
+    in.estop_column_seen = true;
+    in.host_seen = true;
+    in.bms_seen = true;
+    in.encoder_seen = true;
+    in.safety_ok = true;  // PNOZ enabled
+    uint64_t now = 0;
+    oamr_commissioning_record_t rec;
+    oamr_commissioning_record_init(&rec);
+    rec.wheel_radius_m = 0.1f;  // test values; track width still missing
+    rec.accel_limit_m_s2 = 1.5f;
+    const oamr_sc_outputs_t *out = nullptr;
+    auto run = [&](int ms, bool reset) {
+        for (int i = 0; i < ms; i++) {
+            now += MS;
+            in.host_rx_us = in.bms_rx_us = in.estop_column_rx_us = in.encoder_rx_us = now;
+            in.reset_pressed = reset;
+            in.sw_stop = oamr_commissioning_sw_stop(&rec, false);  // host Stop released
+            out = oamr_sc_step(&sc, &in, now);
+        }
+    };
+    run(100, false);
+    run(200, true);
+    run(100, false);
+    EXPECT_EQ(out->state, OAMR_SC_LOCKED);
+    EXPECT_FALSE(out->motion_allowed);
+    EXPECT_TRUE(out->reasons & OAMR_SC_R_SOFTWARE_STOP);
+
+    // Stays LOCKED for as long as the record is incomplete.
+    run(3000, false);
+    EXPECT_EQ(out->state, OAMR_SC_LOCKED);
+
+    // A fresh boot with a complete record arms with the normal RESET press.
+    oamr_sc_init(&sc, &scc);
+    rec = complete_record();
+    run(100, false);
+    EXPECT_EQ(out->state, OAMR_SC_LOCKED);
+    run(200, true);
+    run(100, false);
+    EXPECT_EQ(out->state, OAMR_SC_RUN);
+}

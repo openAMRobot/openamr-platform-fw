@@ -16,13 +16,21 @@
  * - The second E-stop status from CTL-017 (CAN3) is not relayed yet, so it is
  *   UNKNOWN, which the safety core treats as an E-stop diagnostic.
  * - No micro-ROS client: the port_on_* entry points exist for its callbacks.
+ * - The commissioning record (Port/Inc/port_commissioning.h) is empty: wheel
+ *   radius, track width, acceleration, ZLAC ramps and the D-24 link-loss
+ *   settings are TODO(Evans). Until it is complete, Software Stop is held
+ *   asserted (safety core LOCKED) and the motion core writes zero. Until the
+ *   ZLAC fields (ramps, 2000h, 1017h, consumer) are ruled, the ZLAC adapter
+ *   is not started either: nothing is written or saved to the drive.
  * So this build cannot move the wheels. That is intended until the owner has
- * assigned the pins and ruled on D-24.
+ * assigned the pins, measured the geometry and ruled on D-24.
  */
 #include "port_board.h"
+#include "port_commissioning.h"
 #include "port_internal.h"
 
 #include "oamr/can_health.h"
+#include "oamr/commissioning.h"
 #include "oamr/daly_bms.h"
 #include "oamr/icm42688.h"
 #include "oamr/motion.h"
@@ -49,6 +57,9 @@ static oamr_icm_result_t s_imu_result = OAMR_ICM_BUS_ERROR;
 static oamr_transport_t s_transport;
 static bool s_transport_open;
 static volatile bool s_app_ready;
+static oamr_commissioning_record_t s_commissioning;
+static uint32_t s_commissioning_missing;  /* OAMR_COMM_* bits, for the status */
+static bool s_zlac_enabled;               /* adapter started only when commissioned */
 
 /* Host inputs, written from the background loop with interrupts masked. */
 static bool s_host_seen;
@@ -89,7 +100,8 @@ static void backend_set(void *ctx, float l, float r)
 static bool backend_ready(void *ctx)
 {
     (void)ctx;
-    return oamr_can_health_usable(&s_can1_health) && s_zlac_backend.is_ready(s_zlac_backend.ctx);
+    return s_zlac_enabled && oamr_can_health_usable(&s_can1_health) &&
+           s_zlac_backend.is_ready(s_zlac_backend.ctx);
 }
 
 static oamr_wheel_feedback_t backend_feedback(void *ctx)
@@ -113,7 +125,7 @@ static void read_safety_inputs(void)
 
     s_sc_in.host_seen = s_host_seen;
     s_sc_in.host_rx_us = s_host_rx_us;
-    s_sc_in.sw_stop = s_sw_stop;
+    s_sc_in.sw_stop = oamr_commissioning_sw_stop(&s_commissioning, s_sw_stop);
     s_sc_in.charge_cmd = s_charge_cmd;
 
     const oamr_bms_status_t *bms = oamr_daly_status(&s_daly);
@@ -140,7 +152,9 @@ static void control_tick(void)
     const uint64_t now = port_clock_now_us(NULL);
     oamr_can_frame_t f;
     while (port_can_receive(&hfdcan1, &f)) {
-        oamr_zlac_on_frame(&s_zlac, &f, now);
+        if (s_zlac_enabled) {
+            oamr_zlac_on_frame(&s_zlac, &f, now);
+        }
     }
     while (port_can_receive(&hfdcan2, &f)) {
         (void)oamr_daly_on_frame(&s_daly, &f, now);
@@ -161,7 +175,7 @@ static void control_tick(void)
     /* TODO(Evans): hold_and_move from the aux status (arms holding a pose). */
     (void)oamr_motion_tick(&s_motion, now, motion_allowed, false, &s_backend);
 
-    if (oamr_can_health_usable(&s_can1_health)) {
+    if (s_zlac_enabled && oamr_can_health_usable(&s_can1_health)) {
         oamr_zlac_tick(&s_zlac, now);
     }
     if (oamr_can_health_usable(&s_can2_health)) {
@@ -194,8 +208,16 @@ void port_app_init(void)
     oamr_can_health_init(&s_can1_health, &hc);
     oamr_can_health_init(&s_can2_health, &hc);
 
+    s_commissioning = port_commissioning_record();
+    s_commissioning_missing = oamr_commissioning_missing(&s_commissioning);
+    /* The drive is configured once its own fields are ruled, so the D-24
+     * commissioning (wheels up) can run before the geometry is measured.
+     * Motion still needs the complete record. */
+    s_zlac_enabled = (s_commissioning_missing & (OAMR_COMM_ZLAC_RAMPS | OAMR_COMM_ZLAC_LINK_LOSS)) == 0u;
+
     oamr_zlac_config_t zc;
     oamr_zlac_default_config(&zc);
+    oamr_zlac_apply_commissioning(&zc, &s_commissioning);
     const oamr_can_tx_t can1 = port_can_tx(&hfdcan1);
     oamr_zlac_init(&s_zlac, &zc, &can1, now);
     s_zlac_ctx.zlac = &s_zlac;
@@ -214,6 +236,7 @@ void port_app_init(void)
 
     oamr_motion_config_t mc;
     oamr_motion_default_config(&mc);
+    oamr_commissioning_apply_motion(&s_commissioning, &mc);
     oamr_motion_init(&s_motion, &mc);
 
     oamr_sc_config_t scc;
@@ -262,6 +285,11 @@ void port_on_host_heartbeat(void)
     s_host_rx_us = now;
     oamr_motion_host_heartbeat(&s_motion, now);
     __set_PRIMASK(primask);
+}
+
+uint32_t port_commissioning_missing(void)
+{
+    return s_commissioning_missing;
 }
 
 void port_on_sw_stop(bool asserted)

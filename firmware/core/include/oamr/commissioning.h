@@ -106,6 +106,14 @@ uint32_t oamr_commissioning_consumer_timeout_ms(const oamr_commissioning_record_
 void oamr_commissioning_apply_motion(const oamr_commissioning_record_t *r,
                                      oamr_motion_config_t *cfg);
 
+/* Software Stop as fed to the safety core: the host's Stop, or asserted for
+ * as long as the record is incomplete. The safety core then stays LOCKED
+ * (reason SOFTWARE_STOP), the RESET lamp stays on and a RESET press cannot
+ * arm it. Note: under E-01 rev 3 a RESET press while Stop is asserted arms
+ * reset_seen, so this is only correct because the record is a compile-time
+ * constant in the port and never completes at runtime. */
+bool oamr_commissioning_sw_stop(const oamr_commissioning_record_t *r, bool host_sw_stop);
+
 #ifdef __cplusplus
 }
 #endif
