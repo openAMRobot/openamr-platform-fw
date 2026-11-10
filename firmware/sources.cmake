@@ -16,4 +16,5 @@ set(OAMR_FIRMWARE_SOURCES
     ${OAMR_FIRMWARE_DIR}/core/src/motion.c
     ${OAMR_FIRMWARE_DIR}/core/src/can_health.c
     ${OAMR_FIRMWARE_DIR}/core/src/commissioning.c
+    ${OAMR_FIRMWARE_DIR}/safety_io/src/safety_core.c
 )
