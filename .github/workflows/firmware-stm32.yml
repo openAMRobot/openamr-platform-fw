@@ -34,7 +34,7 @@ jobs:
         working-directory: .
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi cmake ninja-build
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi=15:13.2.rel1-2 binutils-arm-none-eabi=2.42-1ubuntu1+23 libnewlib-arm-none-eabi=4.4.0.20231231-2 cmake ninja-build
           arm-none-eabi-gcc --version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Configure

@@ -24,9 +24,9 @@ jobs:
       ROS_DISTRO: jazzy
       # linorobot2_hardware branch jazzy, the base pinned in NOTICE.md
       UPSTREAM_SHA: aaf9d59cd18c0cd1905be6fdae9ea5c99961a766
-      # upstream platformio.ini leaves the platform unpinned; newer toolchains reject micro-ROS
-      # sources (implicit clock_gettime). Pin the Teensyduino 1.59 platform (GCC 11.3).
-      TEENSY_PLATFORM: teensy@5.0.0
+      # platform, libraries and micro-ROS are pinned in the overlay's firmware/platformio.ini (#33)
+      TEENSY_PLATFORM: teensy@5.1.0
+      PIO_CORE: 6.1.19
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -52,19 +52,19 @@ jobs:
       - name: Install PlatformIO in its own environment (micro_ros_platformio needs ~/.platformio/penv)
         run: |
           python -m venv ~/.platformio/penv
-          ~/.platformio/penv/bin/python -m pip install platformio==6.1.18
+          ~/.platformio/penv/bin/python -m pip install "platformio==${PIO_CORE}"
           echo "$HOME/.platformio/penv/bin" >> "$GITHUB_PATH"
 
-      - name: Apply the OpenAMRobot overlay
+      - name: Apply the OpenAMRobot overlay (deployed 2026-06-29 file set, #33)
         run: |
           overlay=boards/teensy_4_0/linorobot2_overlay
           cp "$overlay/config/lino_base_config.h" upstream/config/lino_base_config.h
-          cp "$overlay/lib/pid/pid.cpp" upstream/firmware/lib/pid/pid.cpp
-          cp "$overlay/lib/pid/pid.h" upstream/firmware/lib/pid/pid.h
-          cp "$overlay/src/firmware.ino" upstream/firmware/src/firmware.ino
-          # pin the platform in the CI copy of the upstream platformio.ini ([env] section)
-          sed -i "0,/^platform = teensy\s*$/s//platform = ${TEENSY_PLATFORM}/" upstream/firmware/platformio.ini
-          grep -n "^platform" upstream/firmware/platformio.ini
+          cp "$overlay/firmware/platformio.ini"   upstream/firmware/platformio.ini
+          cp "$overlay/src/firmware.ino"          upstream/firmware/src/firmware.ino
+          cp "$overlay/lib/pid/pid.cpp" "$overlay/lib/pid/pid.h" upstream/firmware/lib/pid/
+          cp "$overlay/lib/encoder/encoder.h"     upstream/firmware/lib/encoder/encoder.h
+          git -C upstream status --short
+          test "$(git -C upstream status --short | wc -l)" -eq 6
           grep -q "^platform = ${TEENSY_PLATFORM}$" upstream/firmware/platformio.ini
 
       - name: Build teensy40
@@ -79,6 +79,8 @@ jobs:
               | python3 -c "import sys; t=sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error title=pio log tail::' + t[-3500:])"
             exit 1
           fi
+          grep -q "PLATFORM: Teensy (${TEENSY_PLATFORM#teensy@})" build.log
+          sha256sum .pio/build/teensy40/firmware.hex | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

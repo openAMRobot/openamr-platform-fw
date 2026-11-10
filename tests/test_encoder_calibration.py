@@ -177,8 +177,8 @@ class FirmwareContract(unittest.TestCase):
         self.assertEqual(data["cpr"], int(_define(self.fw, "ENC_CAL_CPR")))
 
     def test_firmware_reads_left_then_right_from_the_same_topic(self):
-        self.assertIn("LEFT_CAL[i]  = m->data.data[i];", self.fw)
-        self.assertIn("RIGHT_CAL[i] = m->data.data[ENC_CAL_NBINS + i];", self.fw)
+        self.assertRegex(self.fw, r"LEFT_CAL\[i\]\s*=\s*m->data\.data\[i\];")
+        self.assertRegex(self.fw, r"RIGHT_CAL\[i\]\s*=\s*m->data\.data\[ENC_CAL_NBINS \+ i\];")
         self.assertIn('"/debug/enc_cal"', (TOOLS / "apply_enc_cal.py").read_text())
         self.assertIn('"debug/enc_cal"', self.fw)
 
