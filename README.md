@@ -3,14 +3,17 @@
 Low-level motor-control firmware for the **OpenAMRobot** mobile base: micro-ROS motor
 control, encoder odometry, IMU integration, and a `/debug` telemetry/tuning contract, running
 on a **Teensy 4.0** (Gate A, legacy). Gate B and OpenAMRobot 2.0 use the STM32H723ZG on the
-NUCLEO-H723ZG (CubeMX project in PR #22, not on main).
+NUCLEO-H723ZG, linked to the Jetson over Ethernet with micro-ROS over UDP (USB for the bench
+only). The 2.0 requirements are in [base controller 2.0 I/O](docs/architecture/base-controller-2-0-io.md);
+the STM32 work is in open pull requests, not on main: #22 (CubeMX project), #23 (CI build) and
+#29 (HIL tools).
 
 **Status: experimental.** The firmware currently ships as a **[Teensy 4.0 linorobot2
 overlay](boards/teensy_4_0/linorobot2_overlay/README.md)** — an overlay on top of the
 [linorobot2](https://github.com/linorobot/linorobot2) firmware (Apache-2.0). The modular
 `firmware/` and `configs/` directories are placeholders for a planned decomposition; the
-overlay is what runs on the robot today (Gate A unit, existing robot; also the release fallback
-behind I8; STM32 go/no-go 6 November 2026).
+overlay is what runs on the robot today (Gate A unit on the existing robot; also the release
+fallback behind I8).
 
 > [!NOTE]
 > This repository is part of the **OpenAMRobot vX.X.X** release.
