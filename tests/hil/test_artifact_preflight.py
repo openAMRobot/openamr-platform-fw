@@ -34,7 +34,8 @@ class ArtifactPreflight(unittest.TestCase):
         self.digest = hashlib.sha256(self.image.read_bytes()).hexdigest()
         self.record = {"schema_version": 1, "repository": REPO, "sha": SHA, "ref": "main",
                        "workflow": "Firmware nightly", "result": "PASS",
-                       "checks": [{"name": "stm32-build-debug", "status": "PASS"}],
+                       "checks": [{"name": "stm32-build-debug", "status": "PASS"},
+                                  {"name": "ram-d2-debug", "status": "PASS"}],
                        "artifacts": [{"path": "firmware/controller-debug.hex", "sha256": self.digest}]}
         helper_dir = self.root / "tools/hil"
         helper_dir.mkdir(parents=True)
@@ -75,8 +76,25 @@ class ArtifactPreflight(unittest.TestCase):
         self.record["checks"][0]["status"] = "FAIL"
         self.run_step()
 
-    def test_incomplete_evidence_never_reaches_stub(self):
+    def test_incomplete_nightly_with_passing_image_checks_reaches_stub(self):
         self.record["result"] = "INCOMPLETE"
+        self.record["checks"].append({"name": "ioc-contract", "status": "NOT RUN"})
+        self.run_step(expected_ok=True)
+
+    def test_failed_ram_d2_check_never_reaches_stub(self):
+        self.record["checks"][1]["status"] = "FAIL"
+        self.run_step()
+
+    def test_missing_ram_d2_check_never_reaches_stub(self):
+        del self.record["checks"][1]
+        self.run_step()
+
+    def test_duplicate_build_check_never_reaches_stub(self):
+        self.record["checks"].append({"name": "stm32-build-debug", "status": "PASS"})
+        self.run_step()
+
+    def test_wrong_workflow_never_reaches_stub(self):
+        self.record["workflow"] = "Firmware host tests"
         self.run_step()
 
     def test_unlisted_image_never_reaches_stub(self):

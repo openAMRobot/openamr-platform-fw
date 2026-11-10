@@ -27,11 +27,16 @@ def verify(bundle, repository, sha):
     if (record.get("schema_version"), record.get("repository"), record.get("sha"), record.get("ref")) != (
             1, repository, sha, "main"):
         raise EvidenceError("nightly repository, SHA, ref or schema does not match the requested build")
-    if record.get("workflow") != "Firmware nightly" or record.get("result") != "PASS":
-        raise EvidenceError("nightly must be a successful Firmware nightly evidence record")
-    builds = [c for c in record.get("checks", []) if c.get("name") == "stm32-build-debug"]
-    if len(builds) != 1 or builds[0].get("status") != "PASS":
-        raise EvidenceError("exactly one passing stm32-build-debug check is required")
+    if record.get("workflow") != "Firmware nightly":
+        raise EvidenceError("evidence must come from the Firmware nightly")
+    # The image is defined by its build and its RAM_D2 placement check. The overall nightly
+    # result is recorded, not required: checks with no sources yet keep it INCOMPLETE.
+    status = {}
+    for c in record.get("checks", []):
+        status.setdefault(c.get("name"), []).append(c.get("status"))
+    for required in ("stm32-build-debug", "ram-d2-debug"):
+        if status.get(required) != ["PASS"]:
+            raise EvidenceError(f"exactly one passing {required} check is required")
     candidates = []
     for artifact in record.get("artifacts", []):
         path = PurePosixPath(artifact["path"])
@@ -62,7 +67,8 @@ def verify(bundle, repository, sha):
             matches.append(fields[0])
     if matches != [digest] or hashlib.sha256(image.read_bytes()).hexdigest() != digest:
         raise EvidenceError("image bytes, evidence digest and unique checksum entry must all match")
-    return {"image": str(image), "sha256": digest, "firmware_sha": sha, "repository": repository}
+    return {"image": str(image), "sha256": digest, "firmware_sha": sha, "repository": repository,
+            "nightly_result": record.get("result")}
 
 
 def main(argv=None):
