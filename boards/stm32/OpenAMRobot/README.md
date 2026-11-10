@@ -6,7 +6,9 @@
 
 This project is a board-support and peripheral-configuration baseline for the OpenAMRobot STM32H723 controller. It is not a complete or operational robot firmware implementation.
 
-The project does **not** currently implement motion control, actuator control, the robot safety logic, or an operational end-to-end communication stack. Configured peripherals are not evidence that connected devices or communication paths work. In particular, CAN is configured but is not started by this baseline.
+The CubeMX baseline itself does not implement motion control or the robot safety logic. A proposed board port (`Port/`, called from the `USER CODE` blocks of `main.c`) links the portable core from `../../../firmware`: it captures the reset cause, starts FDCAN1 (ZLAC8015D) and FDCAN2 (Daly BMS) with filters, runs a 50 Hz control tick on TIM6 with a TIM2 microsecond clock, feeds IWDG1 only from that tick, and provides a USART3 serial transport hook for micro-ROS. The safety and charging pins and the IMU INT1 pin are not assigned yet, so the safety core reports INPUT_INVALID and the base stays locked. Independently, the commissioning record (`Port/Inc/port_commissioning.h`: wheel radius, track width, acceleration, ZLAC8015D ramps, 2000h, 1017h and heartbeat consumer) is empty, so the port also holds Software Stop, writes zero wheel velocity and does not start the ZLAC8015D adapter. Nothing has run on hardware. See [`docs/architecture/base-controller-core.md`](../../../docs/architecture/base-controller-core.md).
+
+Configured peripherals are not evidence that connected devices or communication paths work.
 
 The existing Teensy 4.0 firmware remains documented separately under [`boards/teensy_4_0/linorobot2_overlay/`](../../teensy_4_0/linorobot2_overlay/README.md). This STM32 project does not claim to replace the firmware currently running on the robot.
 

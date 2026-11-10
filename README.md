@@ -123,14 +123,16 @@ openamr-platform-fw/
 ├── docs/                                ← firmware documentation
 ├── tools/
 │   └── encoder-calibration/             ← host-side ripple-calibration scripts (per-boot align)
-├── firmware/                            ← PLACEHOLDER (planned modular decomposition)
+├── firmware/                            ← 2.0 portable core and adapters (proposal, host-tested)
 ├── configs/                             ← PLACEHOLDER (planned per-module configs)
-└── tests/                               ← PLACEHOLDER
+└── tests/host/core/                     ← host tests of the 2.0 core (tools/host_tests.sh)
 ```
 
 ## STM32H723 board-support baseline
 
-[`boards/stm32/OpenAMRobot/`](boards/stm32/OpenAMRobot/README.md) contains the STM32H723ZG CubeMX project, generated initialization code, and CMake build configuration. It provides a board-support and peripheral-configuration baseline; it is **not** a complete or hardware-verified robot firmware implementation. CAN is configured but not started.
+[`boards/stm32/OpenAMRobot/`](boards/stm32/OpenAMRobot/README.md) contains the STM32H723ZG CubeMX project, generated initialization code, and CMake build configuration. It is **not** a complete or hardware-verified robot firmware implementation.
+
+A proposed portable core for the 2.0 base controller (command path, ZLAC8015D CANopen, ICM-42688-P, Daly BMS, E-01 safety state machine) lives in `firmware/` with host tests in `tests/host/core` (`tools/host_tests.sh`); the board port in `boards/stm32/OpenAMRobot/Port` starts FDCAN1 and FDCAN2, the IWDG and the control tick. See [docs/architecture/base-controller-core.md](docs/architecture/base-controller-core.md). The safety pins are not assigned yet, so this build keeps the base locked.
 
 The Teensy 4.0 linorobot2 overlay described above remains the firmware documented as running on the robot today. The STM32 project does not claim to replace it.
 
