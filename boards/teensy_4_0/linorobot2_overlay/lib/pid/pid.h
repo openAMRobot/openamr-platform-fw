@@ -14,9 +14,10 @@
 //
 // ---------------------------------------------------------------------------
 // MODIFIED by OpenAMRobot (2026) from the linorobot2 firmware.
-// Change: declares PID::reset(), which the overlay pid.cpp defines and
-// firmware.ino calls. This file remains licensed under Apache-2.0; see
-// NOTICE.md and LICENSE-Apache-2.0 at the repository root.
+// Change: adds PID::reset() to clear the integral, derivative and previous
+// error state (used on watchdog stop and mode changes).
+// This file remains licensed under Apache-2.0; see NOTICE.md and
+// LICENSE-Apache-2.0 at the repository root.
 // ---------------------------------------------------------------------------
 
 #ifndef PID_H
@@ -30,7 +31,7 @@ class PID
         PID(float min_val, float max_val, float kp, float ki, float kd);
         double compute(float setpoint, float measured_value);
         void updateConstants(float kp, float ki, float kd);
-        void reset();
+        void reset();   // clear integral/derivative/error state (watchdog, mode change) — Raj PR5
 
     private:
         float min_val_;
