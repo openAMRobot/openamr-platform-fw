@@ -1,0 +1,12 @@
+# clang-format style for the portable C/C++ core under firmware/ only. Checked in CI by
+# tools/ci/check_format.sh (clang-format 18 from Ubuntu 24.04). Code outside firmware/ (the
+# Teensy overlay, CubeMX-generated and vendored files) is not formatted by this file.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+BreakBeforeBraces: Allman
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+PointerAlignment: Right
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
