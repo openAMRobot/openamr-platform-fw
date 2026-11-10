@@ -8,13 +8,30 @@ wired yet — see the [overlay module mapping](../../boards/teensy_4_0/linorobot
 
 ## Hardware chain is the primary stop (E-01)
 
-The [E-01 safety and power baseline](https://github.com/openAMRobot/openamr-platform-hw/blob/main/electrical/power_distribution/e01-safety-and-power.md)
-(`openamr-platform-hw`, 15 October 2026) defines the hardware E-stop chain: two dual-channel
-E-stops into a Pilz PNOZ s3 safety relay that holds two LEV100H contactors on actuator power. That
-hardware chain is the primary stop. The firmware is not in the safety path: it only observes the
-chain (`SAFETY_OK`, contactor feedback, RESET) and adds a secondary inhibit, and the watchdogs
-below are functional, never safety evidence. The firmware side is tracked in the E-01 safety state
-machine issue ([#17](https://github.com/openAMRobot/openamr-platform-fw/issues/17)); none of it is built or tested yet.
+The E-01 Safety and Power Distribution Baseline (rev1.8, team document; safety content owned by
+the electrical safety owner) defines one hardwired E-stop chain for release 001 and OpenAMRobot
+2.0: two dual-channel Schneider XB4BS8445 E-stops (on 2.0 one on the base front and one on top of
+the moving lift adapter plate) into a Pilz PNOZ s3 safety relay with monitored manual reset,
+which holds the two Gigavac GX11CAC contactors K1 and K2 on actuator power. An E-stop cuts
+actuator power (traction, arms, lift) in hardware; the controller, the Jetson and the regulated
+rails stay powered.
+
+That hardware chain is the primary stop. The firmware is not in the safety path: it only observes
+the chain (SAFETY_OK from PNOZ output Y32, the E-stop spare NO contacts, the RESET NC contact and
+the charger fault line) and adds a secondary inhibit. No bus carries a safety function, and the
+watchdogs below are functional, never safety evidence.
+
+Stopping on 2.0: dynamic stopping stays with the ZLAC8015D drive, so every firmware-initiated stop
+is a drive ramp, and the drive is configured to stop on loss of controller communication. The
+hub-motor brakes are holding brakes rated in static cycles. Their release is fed from the SAFE
+24 V converter behind K1 and K2, so an E-stop also engages them, and every E-stop at speed wears
+the brakes. The release 001 motors have no brakes: after an E-stop the robot coasts to a stop on
+the gearboxes. Base speed stays at most 0.5 m/s until the physical stopping tests pass.
+
+The firmware side is tracked in the E-01 safety state machine issue
+([#17](https://github.com/openAMRobot/openamr-platform-fw/issues/17)); none of it is built or
+tested yet. Precharge sequencing, brake release gating and the ZLAC8015D boot configuration stay
+open until the electrical safety owner rules on them.
 
 ## Command watchdog (`/cmd_vel` timeout)
 
