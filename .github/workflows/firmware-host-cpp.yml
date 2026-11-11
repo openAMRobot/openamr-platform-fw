@@ -134,7 +134,10 @@ jobs:
         run: |
           set -o pipefail
           test -z "${HIL_BENCH:-}"
-          for suite in tests/nightly tests/hil; do
+          # per-suite floor, so a suite cannot shrink or vanish silently; raise it when tests are added
+          for spec in tests/nightly:9 tests/hil:32; do
+            suite=${spec%%:*}; min=${spec##*:}
             "$RUNNER_TEMP/venv/bin/python" -m unittest discover -s "$suite" -v 2>&1 | tee "$RUNNER_TEMP/suite.log"
-            grep -qE '^Ran [1-9][0-9]* tests?' "$RUNNER_TEMP/suite.log"
+            ran=$(sed -nE 's/^Ran ([0-9]+) tests?.*/\1/p' "$RUNNER_TEMP/suite.log")
+            [ "${ran:-0}" -ge "$min" ] || { echo "::error::$suite ran ${ran:-0} tests, expected at least $min"; exit 1; }
           done

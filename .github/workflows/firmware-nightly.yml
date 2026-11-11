@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: main
+          ref: ${{ github.sha }}
           path: fw
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -221,6 +221,7 @@ jobs:
       - name: Boot the STM32 Debug ELF to main's idle loop
         id: boot
         run: |
+          set -euo pipefail
           elf=$(ls stm32/firmware/*-debug.elf | head -1)
           python3 tools/ci/renode_boot.py --renode "$RUNNER_TEMP/renode/renode" --elf "$elf" --summary "$GITHUB_STEP_SUMMARY" | tee renode.log
       - name: Record the experimental result
