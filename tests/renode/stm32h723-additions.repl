@@ -1,0 +1,9 @@
+// OpenAMRobot additions loaded after Renode's platforms/cpus/stm32h743.repl to boot the STM32H723
+// Debug image in the experimental nightly job (tools/ci/renode_boot.py). Not a model of the H723:
+// the H743 description lacks two things that the H723 start-up and MX_FDCAN3_Init wait for.
+//   1. FDCAN3 exists only on STM32H72x/73x (RM0468), base 0x4000D400 (stm32h723xx.h FDCAN3_BASE);
+//      modelled with Renode's MCAN, sharing the message RAM of FDCAN1/2 as on the device.
+// The PWR CSR1 ACTVOSRDY read stub is a sysbus tag set in the .resc (see renode_boot.py),
+// because the H743 description already tags the PWR block and a tag cannot be redefined here.
+fdcan3: CAN.MCAN @ sysbus 0x4000D400
+    messageRAM: canMessageRAM

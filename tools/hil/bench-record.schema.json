@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/openAMRobot/openamr-platform-fw/tools/hil/bench-record.schema.json",
+  "title": "OpenAMRobot hardware-in-the-loop bench record, schema_version 1",
+  "description": "One record per bench run (docs/hil-bench.md). Automated results come from tools/hil; the manual checklist is performed, recorded and signed by a human. A record without a signature is not bench evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "firmware_sha", "hardware_revision", "bom_issue", "p03_revision",
+               "fixture_revision", "operator", "date", "run_url", "tests", "raw_logs", "manual_checklist", "signature"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "firmware_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "firmware_image_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "hardware_revision": {"type": "string", "minLength": 1},
+    "bom_issue": {"type": "string", "minLength": 1},
+    "p03_revision": {"type": "string", "minLength": 1},
+    "fixture_revision": {"type": "string", "minLength": 1},
+    "operator": {"type": "string", "minLength": 1, "description": "GitHub login of the person who approved the hil-bench environment for this run"},
+    "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "run_url": {"type": "string"},
+    "tests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test", "status", "detail"],
+        "properties": {
+          "test": {"type": "string"},
+          "status": {"enum": ["PASS", "FAIL", "NOT RUN"]},
+          "detail": {"type": "string"},
+          "log": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "raw_logs": {"type": "array", "items": {"type": "string"}},
+    "manual_checklist": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "status"],
+        "properties": {
+          "item": {"type": "string"},
+          "status": {"enum": ["PENDING", "PASS", "FAIL", "NOT RUN"]},
+          "observed": {"type": "string"},
+          "initials": {"type": "string"}
+        }
+      }
+    },
+    "signature": {
+      "description": "null until the operator has performed the manual checklist and signs the record",
+      "oneOf": [
+        {"type": "null"},
+        {"type": "object", "additionalProperties": false, "required": ["name", "role", "date"],
+         "properties": {"name": {"type": "string", "minLength": 1}, "role": {"type": "string", "minLength": 1},
+                        "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}}}
+      ]
+    }
+  }
+}

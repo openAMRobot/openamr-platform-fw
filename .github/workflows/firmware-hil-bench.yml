@@ -1,0 +1,124 @@
+name: Firmware HIL bench
+
+# Layer 3: hardware-in-the-loop checks on the controlled bench (docs/hil-bench.md).
+# Manual dispatch only: never on pull_request, push or schedule, so untrusted code cannot reach
+# the bench runner. The hil-bench environment needs required reviewers (an owner sets this up;
+# this workflow does not). Only an image that the Firmware nightly built and recorded for a commit
+# on main is flashed. No step drives the E-stop chain, contactors, brakes, lift power or the
+# charger; those paths are the manual checklist, performed and signed by a person.
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_sha:
+        description: "openamr-platform-fw commit on main to test (40 hex characters)"
+        required: true
+        type: string
+      hardware_revision:
+        description: "Bench hardware revision (board, harness), e.g. NUCLEO-H723ZG MB1364 E-01 / harness A"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hil-bench
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    name: bench (${{ inputs.hardware_revision }})
+    runs-on: [self-hosted, openamr-bench]
+    environment: hil-bench
+    timeout-minutes: 30
+    env:
+      FIRMWARE_SHA: ${{ inputs.firmware_sha }}
+      HARDWARE_REVISION: ${{ inputs.hardware_revision }}
+      HIL_RESULTS: build/hil/results.jsonl
+      HIL_LOG_DIR: build/hil/logs
+    steps:
+      - name: Refuse unless this is the bench runner
+        run: |
+          test "${HIL_BENCH:-}" = 1 || { echo "::error::HIL_BENCH=1 is not set on this runner"; exit 1; }
+          [[ "$FIRMWARE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::firmware_sha must be a full 40-character SHA"; exit 1; }
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.firmware_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The commit is on main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$FIRMWARE_SHA" origin/main || { echo "::error::$FIRMWARE_SHA is not on main"; exit 1; }
+
+      - name: Find the Firmware nightly run that built this commit
+        id: nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow firmware-nightly.yml --branch main \
+                   --json databaseId,headSha,conclusion --limit 100 \
+                   --jq "[.[] | select(.headSha == \"$FIRMWARE_SHA\")][0].databaseId")
+          [ -n "$run_id" ] && [ "$run_id" != null ] || { echo "::error::no Firmware nightly run for $FIRMWARE_SHA"; exit 1; }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ci-evidence
+          path: nightly
+          run-id: ${{ steps.nightly.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Flash the STM32 Debug image recorded by the nightly
+        id: image
+        run: |
+          image=$(ls nightly/firmware/*-debug.hex | head -1)
+          sha=$(awk -v f="$(basename "$image")" '$2 == f {print $1}' nightly/SHA256SUMS)
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          python3 tools/hil/flash.py --target stm32 --image "$image" --sha256 "$sha"
+
+      - name: Boot banner and reset reason (ST-LINK virtual COM port)
+        if: always() && steps.image.outcome == 'success'
+        run: python3 tools/hil/boot_banner.py --expect-sha "$FIRMWARE_SHA" --port "${HIL_VCP_PORT:-/dev/ttyACM0}"
+
+      - name: IMU WHO_AM_I
+        if: always() && steps.image.outcome == 'success'
+        run: python3 tools/hil/imu_whoami.py
+
+      - name: Ethernet ping and UDP echo
+        if: always() && steps.image.outcome == 'success'
+        run: python3 tools/hil/eth_check.py --ip "${HIL_CONTROLLER_IP:-192.168.1.10}"
+
+      - name: CAN1, CAN2, CAN3 loopback on the bench harness
+        if: always() && steps.image.outcome == 'success'
+        run: python3 tools/hil/can_loopback.py
+
+      - name: MB7060 and TF-Luna frames on the sensor taps
+        if: always() && steps.image.outcome == 'success'
+        run: python3 tools/hil/sensor_frames.py --mb7060 ${HIL_MB7060_PORTS:-} --tfluna ${HIL_TFLUNA_PORTS:-}
+
+      - name: Write the bench record (manual checklist PENDING, unsigned)
+        if: always()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OPERATOR: ${{ github.triggering_actor }}
+          IMAGE_SHA256: ${{ steps.image.outputs.sha256 }}
+        run: |
+          python3 tools/hil/write_bench_record.py --out bench-record.json --firmware-sha "$FIRMWARE_SHA" \
+            --hardware-revision "$HARDWARE_REVISION" --bom-issue "${HIL_BOM_ISSUE:?set on the bench runner}" \
+            --p03-revision "${HIL_P03_REVISION:?set on the bench runner}" \
+            --fixture-revision "${HIL_FIXTURE_REVISION:?set on the bench runner}" \
+            --operator "$OPERATOR" --run-url "$RUN_URL" ${IMAGE_SHA256:+--image-sha256 "$IMAGE_SHA256"}
+          { echo "### Bench record (unsigned until the manual checklist is done)"; echo '```'; cat "$HIL_RESULTS" 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: bench-record
+          path: |
+            bench-record.json
+            build/hil
+          retention-days: 90
