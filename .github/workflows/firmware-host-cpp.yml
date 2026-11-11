@@ -135,7 +135,7 @@ jobs:
           set -o pipefail
           test -z "${HIL_BENCH:-}"
           # per-suite floor, so a suite cannot shrink or vanish silently; raise it when tests are added
-          for spec in tests/nightly:9 tests/hil:29; do
+          for spec in tests/nightly:9 tests/hil:32; do
             suite=${spec%%:*}; min=${spec##*:}
             "$RUNNER_TEMP/venv/bin/python" -m unittest discover -s "$suite" -v 2>&1 | tee "$RUNNER_TEMP/suite.log"
             ran=$(sed -nE 's/^Ran ([0-9]+) tests?.*/\1/p' "$RUNNER_TEMP/suite.log")

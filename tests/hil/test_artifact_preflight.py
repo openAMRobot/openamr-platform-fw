@@ -81,6 +81,20 @@ class ArtifactPreflight(unittest.TestCase):
         self.record["checks"].append({"name": "ioc-contract", "status": "NOT RUN"})
         self.run_step(expected_ok=True)
 
+    def test_failed_nightly_never_reaches_stub(self):
+        self.record["result"] = "FAIL"
+        self.run_step()
+
+    def test_failed_contract_check_never_reaches_stub(self):
+        # review 11 Nov: image checks PASS, another check FAIL, overall INCOMPLETE
+        self.record["result"] = "INCOMPLETE"
+        self.record["checks"].append({"name": "controller-contract", "status": "FAIL"})
+        self.run_step()
+
+    def test_unknown_nightly_result_never_reaches_stub(self):
+        self.record["result"] = "SKIPPED"
+        self.run_step()
+
     def test_failed_ram_d2_check_never_reaches_stub(self):
         self.record["checks"][1]["status"] = "FAIL"
         self.run_step()

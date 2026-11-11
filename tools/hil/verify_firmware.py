@@ -29,8 +29,13 @@ def verify(bundle, repository, sha):
         raise EvidenceError("nightly repository, SHA, ref or schema does not match the requested build")
     if record.get("workflow") != "Firmware nightly":
         raise EvidenceError("evidence must come from the Firmware nightly")
-    # The image is defined by its build and its RAM_D2 placement check. The overall nightly
-    # result is recorded, not required: checks with no sources yet keep it INCOMPLETE.
+    # The image is defined by its build and its RAM_D2 placement check. INCOMPLETE is allowed
+    # (checks with no sources yet are NOT RUN); a failed nightly or any failed check is not.
+    if record.get("result") not in ("PASS", "INCOMPLETE"):
+        raise EvidenceError("the Firmware nightly result must be PASS or INCOMPLETE")
+    failed = sorted(c.get("name", "?") for c in record.get("checks", []) if c.get("status") == "FAIL")
+    if failed:
+        raise EvidenceError("failed nightly checks: " + ", ".join(failed))
     status = {}
     for c in record.get("checks", []):
         status.setdefault(c.get("name"), []).append(c.get("status"))
