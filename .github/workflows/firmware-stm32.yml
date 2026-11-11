@@ -15,6 +15,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # openamr-platform-hw commit whose interfaces/electrical/base-controller-io.yaml the .ioc is
+  # checked against. Set the repository variable HW_CONTRACT_SHA to pin it; default: hw main.
+  HW_CONTRACT_REF: ${{ vars.HW_CONTRACT_SHA || 'main' }}
+
 jobs:
   stm32h723:
     name: STM32H723 ${{ matrix.preset }}
@@ -51,6 +56,44 @@ jobs:
             echo "::error::Compiler warnings in project code (vendored Drivers are not checked)"
             exit 1
           fi
+
+      - name: Check out the controller I/O contract (openamr-platform-hw)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: openAMRobot/openamr-platform-hw
+          ref: ${{ env.HW_CONTRACT_REF }}
+          path: .hw
+          sparse-checkout: interfaces/electrical
+          persist-credentials: false
+
+      - name: Install pinned Python packages
+        working-directory: .
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-deps PyYAML==6.0.3
+
+      - name: CubeMX .ioc against the controller I/O contract
+        working-directory: .
+        run: |
+          contract=.hw/interfaces/electrical/base-controller-io.yaml
+          hw_sha=$(git -C .hw rev-parse HEAD)
+          if [ ! -f "$contract" ]; then
+            echo "::warning title=ioc contract::NOT RUN: no $contract at openamr-platform-hw $hw_sha"
+            echo "NOT RUN: ioc contract check, no base-controller-io.yaml at openamr-platform-hw $hw_sha" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          status=0
+          for ioc in boards/stm32/*/*.ioc; do
+            "$RUNNER_TEMP/venv/bin/python" tools/ci/check_ioc_contract.py "$ioc" --contract "$contract" \
+              --contract-sha "$hw_sha" --json "build-ioc-contract-$(basename "$ioc" .ioc).json" || status=1
+          done
+          echo "ioc contract check against openamr-platform-hw $hw_sha: $([ $status = 0 ] && echo PASS || echo FAIL)" >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Vendored ST files against the upstream release (Debug leg only)
+        if: matrix.preset == 'Debug'
+        working-directory: .
+        run: python3 tools/ci/check_vendor_provenance.py --cache "$RUNNER_TEMP/vendor-upstream"
 
       - name: Ethernet DMA descriptors in RAM_D2
         run: python3 ../../../tools/ci/check_dma_placement.py build/${{ matrix.preset }}/OpenAMRobot.elf
