@@ -15,8 +15,8 @@ Register entries: `BASE-CONTROLLER-IO`, `BASE-CONTROLLER-GATES` and `IMU-TOPIC-O
 
 | Sensor | Count | Position | Interface |
 |---|---|---|---|
-| MaxBotix MB7060 | 4 | front and rear panel edge holes | one dedicated UART each, 9600 8N1 with receive inversion; one trigger GPIO each for sequential triggering |
-| Benewake TF-Luna (cliff) | 2 | front and rear centre holes | one UART each; pin 5 tied to 3.3 V |
+| MaxBotix MB7060 | 4 | front and rear panel edge holes | one dedicated UART each, 9600 8N1 with receive inversion; one trigger GPIO each for sequential triggering; 3.3 V from a dedicated regulator off 5 V |
+| Benewake TF-Luna (cliff) | 2 | front and rear centre holes | one UART each; supplied from 5 V, pin 5 tied to 3.3 V |
 
 Totals: six sensor UARTs plus the debug UART, and four trigger GPIOs. No sensor I2C leaves the
 controller board.

@@ -1,6 +1,7 @@
 # Build & flash (Teensy 4.0)
 
-*Applies to the Teensy 4.0 `linorobot2_overlay` firmware.*
+*Applies to the Gate A (legacy) Teensy 4.0 `linorobot2_overlay` firmware, also the release fallback;
+not the 2.0 STM32H723ZG firmware.*
 
 The overlay is built on top of a linorobot2 firmware checkout with PlatformIO and flashed to the
 Teensy 4.0 with `teensy_loader_cli`. See the [overlay README](../../boards/teensy_4_0/linorobot2_overlay/README.md)
