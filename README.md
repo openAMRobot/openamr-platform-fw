@@ -114,10 +114,12 @@ See [encoder calibration](docs/architecture/encoder-calibration.md) for the engi
 ```text
 openamr-platform-fw/
 ├── boards/
-│   └── teensy_4_0/linorobot2_overlay/   ← the current firmware (overlay on linorobot2)
-│       ├── src/firmware.ino             (Apache-2.0, modified from linorobot2)
-│       ├── lib/pid/pid.cpp              (Apache-2.0, modified from linorobot2)
-│       └── config/lino_base_config.h    (Apache-2.0, modified from linorobot2)
+│   ├── teensy_4_0/linorobot2_overlay/   ← the current firmware (overlay on linorobot2)
+│   │   ├── src/firmware.ino             (Apache-2.0, modified from linorobot2)
+│   │   ├── lib/pid/pid.cpp              (Apache-2.0, modified from linorobot2)
+│   │   └── config/lino_base_config.h    (Apache-2.0, modified from linorobot2)
+│   └── stm32/
+│       └── OpenAMRobot/                 ← STM32H723 board-support baseline
 ├── docs/                                ← firmware documentation
 ├── tools/
 │   └── encoder-calibration/             ← host-side ripple-calibration scripts (per-boot align)
@@ -125,6 +127,12 @@ openamr-platform-fw/
 ├── configs/                             ← PLACEHOLDER (planned per-module configs)
 └── tests/                               ← PLACEHOLDER
 ```
+
+## STM32H723 board-support baseline
+
+[`boards/stm32/OpenAMRobot/`](boards/stm32/OpenAMRobot/README.md) contains the STM32H723ZG CubeMX project, generated initialization code, and CMake build configuration. It provides a board-support and peripheral-configuration baseline; it is **not** a complete or hardware-verified robot firmware implementation. CAN is configured but not started.
+
+The Teensy 4.0 linorobot2 overlay described above remains the firmware documented as running on the robot today. The STM32 project does not claim to replace it.
 
 ## Documentation
 

@@ -2,3 +2,20 @@ __pycache__/
 *.pyc
 .pio/
 .DS_Store
+
+# CMake / Ninja build outputs
+/build/
+/cmake-build-*/
+/**/build/
+
+# Generated firmware build artefacts
+*.elf
+*.hex
+*.bin
+*.map
+*.o
+*.a
+*.d
+
+# Local IDE settings
+.vscode/
