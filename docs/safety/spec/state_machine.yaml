@@ -1,0 +1,263 @@
+# Base controller safety state machine, rev 5, as data.
+#
+# Test oracle input for specification review. Not firmware. Not a safety function.
+# Source: E-01 safety state machine rev 5 review copy (platform-fw #17, owner comment of
+# 11 Nov 2026, updated the same day), lift permit design in platform-fw #20 (11 to 13 Nov),
+# decision D-24, P-03 item 30. Every row names its source. Row status values:
+#   REV5            stated in rev 5
+#   INTERPRETATION  rev 5 implies it but does not state it; the owner must confirm
+#   ADDED           not in rev 5; added so the table is complete; reason given
+#   CONFLICT        rev 5 and a later proposal disagree; both are kept, nothing is chosen
+# Abstraction: debounce, the 2 s and 5 s RESET timers, the 1 s qualification window and the
+# 500 ms charge interlock window are folded into events (for example reset_hold_5s,
+# qualification result on reset_short). The owner's C code runs those timers; the adapter
+# (adapter.md) turns the events into raw input edges where his harness needs them.
+spec_version: 1
+source_revision: "rev 5 review copy update, 11 Nov 2026"
+
+states:
+  - {id: LOCKED, motion: inhibited, lamp: "ON", charge_request: "OFF", initial: true, source: "rev5 2.1"}
+  - {id: RUN, motion: allowed, lamp: "OFF", charge_request: "OFF", source: "rev5 2.1"}
+  - {id: INHIBITED, motion: inhibited, lamp: "OFF", charge_request: "OFF", source: "rev5 2.1"}
+  - {id: CHARGING, motion: inhibited, lamp: "ON", charge_request: "ON", source: "rev5 2.1"}
+  - {id: CHARGER_FAULT, motion: inhibited, lamp: "ON", charge_request: "OFF", source: "rev5 2.1"}
+
+latches:
+  - {id: reset_seen, set_by: "qualified short physical RESET (5.1, 5.2)", boot: clear, source: "rev5 2.2"}
+  - {id: ui_stop, set_by: "UI Stop, any state, any session", cleared_by: "UI Resume in the current session, or boot", boot: clear, source: "rev5 2.2, 3.1"}
+  - {id: jetson_stop, set_by: "boot, T5", cleared_by: "Jetson Stop release in the current session", boot: set, source: "rev5 2.2"}
+  - {id: wcm_latched, set_by: "WCM_FAULT while CHARGING", cleared_by: "acknowledgement while WCM_FAULT normal and charge command removed", boot: clear, source: "rev5 5.3, 5.6"}
+  - {id: interlock_latched, set_by: "CHARGE_INTERLOCK while CHARGING", cleared_by: "acknowledgement once CHARGE_REQUEST off and attempt ended", boot: clear, source: "rev5 5.3"}
+
+# Conditions are inputs the vectors set; the owner's code derives them from raw signals.
+inputs:
+  - {id: run_ok, meaning: "every other RUN condition of rev 3 row 2 holds: SAFETY_OK high, E-stop diagnostics released and fresh, Jetson and BMS fresh, drive healthy and configured, inputs valid", source: "rev5 2.2, T1"}
+  - {id: base_stopped, meaning: "both wheels below the stopped threshold for the hold time, fresh valid encoder data", source: "rev5 3 UI Resume"}
+  - {id: arming_ok, meaning: "rev 3 section 5.1 arming conditions at the release edge, RESET seen low since boot, no active charge command", source: "rev5 5.1"}
+  - {id: qualified, meaning: "SAFETY_OK qualification of 5.2 passed (already high, or high and held 20 ms within 1 s)", source: "rev5 5.2"}
+  - {id: session_current, meaning: "message belongs to the current established session and epoch", source: "rev5 3.1"}
+  - {id: seq_valid, meaning: "sequence greater than the last accepted one in the session", source: "rev5 3.1"}
+  - {id: charge_pre_ok, meaning: "charge preconditions of rev 3 5.3: stopped, diagnostics fresh, no latched fault, WCM_FAULT normal, BMS ok, inputs valid, Jetson fresh", source: "rev5 5.6"}
+  - {id: charge_cmd_present, meaning: "Jetson holds a charge command", source: "rev5 5.3, 5.6"}
+  - {id: wcm_fault_active, meaning: "WCM_FAULT input asserted now", source: "rev5 5.3"}
+  # A motion command queued before the latest RUN entry is sent with event param queued: true.
+
+outputs:
+  - {id: motor, values: [ZERO, FOLLOW_CMD], meaning: "ZERO in every state except RUN with a fresh command", source: "rev5 2.1, T11"}
+  - {id: lamp, values: ["ON", "OFF"], source: "rev5 2.1"}
+  - {id: charge_request, values: ["ON", "OFF"], source: "rev5 2.1, 5.6"}
+
+# Same-tick priority: 5 s hold first, then the latching charger faults, then the rest.
+priority: [reset_hold_5s, wcm_fault, charge_interlock_fault, others]
+priority_source: "rev5 4 (same-tick priority), 4.1"
+
+# Reason codes named in rev 5 (numeric IDs assigned with the fault registry, group 18001).
+# Names marked ADDED are placeholders for reasons rev 5 requires but does not name.
+reason_codes:
+  rev5: [BOOT_POWER_ON, BOOT_WATCHDOG, BOOT_SOFTWARE, UI_STOP, HW_SAFETY_NOT_ENABLED, ESTOP_DIAG,
+         COMMS_LOST, BMS_FAULT, "INPUT_INVALID:MISSING", "INPUT_INVALID:STALE",
+         "INPUT_INVALID:IMPLAUSIBLE", "INPUT_INVALID:RESET_HIGH", REBOOT_REQUESTED, CHARGER_FAULT,
+         CHARGE_INTERLOCK, DRIVE_FAULT, DRIVE_COMMS, DRIVE_CONFIG, CHARGE_ENDED, SESSION_OLD]
+  added:
+    QUALIFICATION_FAILED: "5.2 requires a report when SAFETY_OK does not qualify; no code named. TODO(Evans)"
+    RESUME_REJECTED: "3 says Resume is rejected with a reason code; no code named. TODO(Evans)"
+    SEQ_REJECTED: "3.1 rejects replayed and duplicate sequence numbers; no code named. TODO(Evans)"
+    CHARGE_REJECTED: "5.6 says the reply carries a specific rejection reason; none named. TODO(Evans)"
+    CHARGER_ACK_REJECTED: "5.3 says rejection by the Jetson route carries a reason code; none named. TODO(Evans)"
+    BASE_NOT_STOPPED: "5.6 leaves CHARGING when the robot is no longer stopped, reason 'for the cause'; none named. TODO(Evans)"
+    MOTION_REJECTED: "3 rejects motion commands outside RUN or before RUN entry; no code named. TODO(Evans)"
+
+# Events. Parameters are given per step in a vector.
+events:
+  boot: {params: {cause: [POWER_ON, WATCHDOG, SOFTWARE]}, source: "T1"}
+  ui_stop: {params: {session: [current, old]}, source: "T2, 2.3, 3.1"}
+  safety_ok_low: {source: "T3 (debounced high-to-low of Y32)"}
+  estop_diag: {source: "T4 (diagnostic active or stale)"}
+  session_lost: {source: "T5"}
+  bms_fault: {source: "T6 (warning, fault or stale)"}
+  input_invalid: {params: {subcause: [MISSING, STALE, IMPLAUSIBLE, RESET_HIGH]}, source: "T7, 5.1 (RESET high 2 s)"}
+  reset_hold_5s: {source: "T8"}
+  wcm_fault: {source: "T9, 5.6"}
+  charge_interlock: {source: "T9, 5.6 (SAFETY_OK still high 500 ms after entry or high again 20 ms)"}
+  drive_fault: {source: "T10a"}
+  drive_comms: {params: {kind: [COMMS, CONFIG]}, source: "T10b"}
+  cmd_stale: {source: "T11"}
+  base_not_stopped: {source: "5.6"}
+  reset_short: {source: "5.1, 5.2, 5.3 (short press, release edge; qualification result in input 'qualified')"}
+  ui_resume: {params: {session: [current, old], seq: [new, replay]}, source: "3, 2.3"}
+  jetson_stop_release: {params: {session: [current, old], seq: [new, replay]}, source: "3"}
+  charge_cmd: {params: {session: [current, old], seq: [new, replay]}, source: "3, 5.6"}
+  charge_cmd_removed: {source: "5.6"}
+  charger_ack: {params: {session: [current, old], seq: [new, replay]}, source: "3, 5.3"}
+  motion_cmd: {params: {session: [current, old], seq: [new, replay], queued: [true, false]}, source: "3, T1 to T11 first admissible motion"}
+  wcm_fault_clear: {source: "5.3 (WCM_FAULT returns to normal)"}
+  charger_ack_internal: {internal: true, source: "5.3 short RESET in CHARGER_FAULT acknowledges"}
+  charger_fault_exit: {internal: true, source: "5.3"}
+  run_entry_check: {internal: true, source: "2.2 RUN needs reset_seen, ui_stop clear, Jetson Stop clear, run_ok"}
+
+# Model variables (not latches): charge_cmd_present (held charge command), wcm_active
+# (WCM_FAULT input level), reboot_pending (between T8 and the following boot), motor.
+
+# Events that do not apply in a state. A vector that sends them there is a spec error.
+not_applicable:
+  - {event: charge_interlock, states: [LOCKED, RUN, INHIBITED, CHARGER_FAULT], source: "5.6: defined only during a charge attempt",
+     note: "H21 says 'a charge-interlock fault while already inhibited latches normally'; rev 5 defines the fault only in CHARGING. Owner question Q4."}
+  - {event: cmd_stale, states: [LOCKED, INHIBITED, CHARGING, CHARGER_FAULT], source: "T11: while the controller remains in RUN; outside RUN the motor is already zero"}
+
+# Transitions. Rows are tried in order; the first row whose 'from', 'when' (event
+# parameters) and 'guard' (inputs, latches, variables) match fires. '*' means every state.
+# Effects: to (next state, default stay), set (latches), vars, motor, reason, record
+# (reason counts as a lock reason in reason_mask / first_reason), result (command reply),
+# then (internal follow-up event). status: REV5 unless stated.
+transitions:
+  # Boot (T1)
+  - {id: B1, from: '*', event: boot, to: LOCKED, set: {reset_seen: false, ui_stop: false, jetson_stop: true, wcm_latched: false, interlock_latched: false},
+     vars: {charge_cmd_present: false, reboot_pending: false}, motor: ZERO, reason: "BOOT_{cause}", record: true, source: "T1, 2.2, 5.3 (latch not stored)"}
+
+  # Session and sequence filters for supervisory and motion commands (3.1)
+  - {id: S1, from: '*', event: [ui_resume, jetson_stop_release, charge_cmd, charger_ack, motion_cmd], when: {session: old}, result: rejected, reason: SESSION_OLD, source: "3.1 old-session messages"}
+  - {id: S2, from: '*', event: [ui_resume, jetson_stop_release, charge_cmd, charger_ack, motion_cmd], when: {seq: replay}, result: rejected, reason: SEQ_REJECTED, status: ADDED,
+     note: "3.1 rejects duplicates and replays; reason name is a placeholder", source: "3.1 sequence number"}
+
+  # UI Stop (T2, 2.3); an old-session UI Stop is honoured (3.1)
+  - {id: U1, from: RUN, event: ui_stop, to: INHIBITED, set: {ui_stop: true}, motor: ZERO, reason: UI_STOP, source: "T2, 2.3"}
+  - {id: U2, from: [LOCKED, INHIBITED, CHARGING, CHARGER_FAULT], event: ui_stop, set: {ui_stop: true}, reason: UI_STOP, source: "2.3, H16 to H18"}
+
+  # SAFETY_OK low (T3)
+  - {id: H1, from: [RUN, INHIBITED], event: safety_ok_low, to: LOCKED, set: {reset_seen: false}, motor: ZERO, reason: HW_SAFETY_NOT_ENABLED, record: true, source: "T3"}
+  - {id: H2, from: LOCKED, event: safety_ok_low, set: {reset_seen: false}, reason: HW_SAFETY_NOT_ENABLED, record: true, source: "4 events by state, LOCKED column"}
+  - {id: H3, from: CHARGING, event: safety_ok_low, source: "T3: SAFETY_OK low in CHARGING is expected and is not T3"}
+  - {id: H4, from: CHARGER_FAULT, event: safety_ok_low, reason: HW_SAFETY_NOT_ENABLED, record: true, source: "4 events by state: report only"}
+
+  # E-stop diagnostic (T4)
+  - {id: E1, from: [RUN, INHIBITED, CHARGING], event: estop_diag, to: LOCKED, set: {reset_seen: false}, motor: ZERO, reason: ESTOP_DIAG, record: true, source: "T4, 4 events by state"}
+  - {id: E2, from: [LOCKED, CHARGER_FAULT], event: estop_diag, set: {reset_seen: false}, reason: ESTOP_DIAG, record: true, source: "4 events by state"}
+
+  # Jetson session lost (T5)
+  - {id: J1, from: [RUN, INHIBITED, CHARGING], event: session_lost, to: LOCKED, set: {reset_seen: false, jetson_stop: true}, vars: {charge_cmd_present: false}, motor: ZERO, reason: COMMS_LOST, record: true, source: "T5, 2.2"}
+  - {id: J2, from: [LOCKED, CHARGER_FAULT], event: session_lost, set: {reset_seen: false, jetson_stop: true}, vars: {charge_cmd_present: false}, reason: COMMS_LOST, record: true, source: "T5, 4 events by state"}
+
+  # BMS (T6)
+  - {id: M1, from: [RUN, INHIBITED, CHARGING], event: bms_fault, to: LOCKED, set: {reset_seen: false}, motor: ZERO, reason: BMS_FAULT, record: true, source: "T6"}
+  - {id: M2, from: [LOCKED, CHARGER_FAULT], event: bms_fault, set: {reset_seen: false}, reason: BMS_FAULT, record: true, source: "T6, 4 scope by state"}
+
+  # Invalid input (T7), including RESET high for 2 s
+  - {id: I1, from: [RUN, INHIBITED, CHARGING], event: input_invalid, to: LOCKED, set: {reset_seen: false}, motor: ZERO, reason: "INPUT_INVALID:{subcause}", record: true, source: "T7, 5.1"}
+  - {id: I2, from: [LOCKED, CHARGER_FAULT], event: input_invalid, set: {reset_seen: false}, reason: "INPUT_INVALID:{subcause}", record: true, source: "T7, 5.1"}
+
+  # RESET held 5 s (T8): outputs inhibited, reboot follows (the vector must send boot next)
+  - {id: R1, from: '*', event: reset_hold_5s, to: LOCKED, set: {reset_seen: false}, vars: {reboot_pending: true}, motor: ZERO, reason: REBOOT_REQUESTED, record: true,
+     status: INTERPRETATION, note: "rev 5 states outputs inhibited before reboot; the model parks in LOCKED until the boot event", source: "T8, 5.1"}
+
+  # Charger fault (T9) and charge interlock
+  - {id: W1, from: CHARGING, event: wcm_fault, to: CHARGER_FAULT, set: {wcm_latched: true}, vars: {wcm_active: true}, reason: CHARGER_FAULT, record: true, source: "T9, 5.6"}
+  - {id: W2, from: [LOCKED, RUN, INHIBITED, CHARGER_FAULT], event: wcm_fault, vars: {wcm_active: true}, reason: CHARGER_FAULT, record: true, source: "4 events by state: record"}
+  - {id: W3, from: '*', event: wcm_fault_clear, vars: {wcm_active: false}, source: "5.3"}
+  - {id: K1, from: CHARGING, event: charge_interlock, to: CHARGER_FAULT, set: {interlock_latched: true}, reason: CHARGE_INTERLOCK, record: true, source: "5.6, H28"}
+
+  # Drive (T10)
+  - {id: D1, from: [RUN, INHIBITED], event: drive_fault, to: LOCKED, set: {reset_seen: false}, motor: ZERO, reason: DRIVE_FAULT, record: true, source: "T10a"}
+  - {id: D2, from: [LOCKED, CHARGING, CHARGER_FAULT], event: drive_fault, set: {reset_seen: false}, reason: DRIVE_FAULT, record: true, source: "T10a, 4 events by state"}
+  - {id: D3, from: [RUN, INHIBITED], event: drive_comms, to: LOCKED, set: {reset_seen: false}, motor: ZERO, reason: "DRIVE_{kind}", record: true, source: "T10b"}
+  - {id: D4, from: [LOCKED, CHARGING, CHARGER_FAULT], event: drive_comms, set: {reset_seen: false}, reason: "DRIVE_{kind}", record: true, source: "T10b, 4 events by state"}
+
+  # Stale command (T11), non-latching
+  - {id: C1, from: RUN, event: cmd_stale, motor: ZERO, source: "T11, 2.4"}
+
+  # Robot no longer stopped while charging (5.6)
+  - {id: N1, from: CHARGING, event: base_not_stopped, to: LOCKED, motor: ZERO, reason: BASE_NOT_STOPPED, record: true, status: ADDED, note: "5.6 lists the exit; reason name is a placeholder", source: "5.6"}
+  - {id: N2, from: [LOCKED, RUN, INHIBITED, CHARGER_FAULT], event: base_not_stopped, status: INTERPRETATION, note: "outside CHARGING the stopped evidence is a guard (Resume, charge), not an event", source: "3, 5.6"}
+
+  # Short RESET press (5.1, 5.2, 5.3)
+  - {id: P1, from: CHARGER_FAULT, event: reset_short, guard: {charge_cmd_present: false}, then: charger_ack_internal, source: "5.3 acknowledgement route 1, 4 command table"}
+  - {id: P2, from: CHARGER_FAULT, event: reset_short, result: rejected, reason: CHARGER_ACK_REJECTED, status: ADDED, note: "charge command still held", source: "5.3"}
+  - {id: P3, from: LOCKED, event: reset_short, guard: {arming_ok: true, qualified: true}, set: {reset_seen: true}, then: run_entry_check, source: "5.1, 5.2, 2.2"}
+  - {id: P4, from: LOCKED, event: reset_short, guard: {arming_ok: true, qualified: false}, set: {reset_seen: false}, reason: QUALIFICATION_FAILED, status: ADDED, note: "5.2 failed qualification clears reset_seen; reason name placeholder", source: "5.2"}
+  - {id: P5, from: LOCKED, event: reset_short, source: "5.1: otherwise it does nothing"}
+  - {id: P6, from: [RUN, INHIBITED, CHARGING], event: reset_short, source: "5.1: no effect"}
+
+  # Charger acknowledgement (5.3), shared by both routes
+  - {id: A1, from: CHARGER_FAULT, event: [charger_ack, charger_ack_internal], guard: {charge_cmd_present: false}, ack: true, then: charger_fault_exit,
+     note: "ack clears wcm_latched only while WCM_FAULT is normal and interlock_latched always (request is off in CHARGER_FAULT); accepted if anything cleared, otherwise rejected CHARGER_ACK_REJECTED",
+     source: "5.3: clears every fault whose own condition holds (WCM: WCM_FAULT normal; interlock: request off and attempt ended)"}
+  - {id: A2, from: CHARGER_FAULT, event: charger_ack, result: rejected, reason: CHARGER_ACK_REJECTED, status: ADDED, source: "5.3 charge command still held"}
+  - {id: A3, from: [LOCKED, RUN, INHIBITED, CHARGING], event: charger_ack, result: rejected, reason: CHARGER_ACK_REJECTED, source: "4 command table"}
+  # internal: leave CHARGER_FAULT when no latched charger fault remains
+  - {id: A4, from: CHARGER_FAULT, event: charger_fault_exit, guard: {wcm_latched: false, interlock_latched: false}, to: LOCKED, source: "5.3, 5.6 last row"}
+  - {id: A5, from: CHARGER_FAULT, event: charger_fault_exit, source: "5.3: stays until none remain"}
+
+  # UI Resume (3, 2.3)
+  - {id: V1, from: [LOCKED, INHIBITED, CHARGING, CHARGER_FAULT], event: ui_resume, guard: {ui_stop: false}, result: rejected, reason: RESUME_REJECTED, status: ADDED, note: "3: needs ui_stop asserted", source: "3"}
+  - {id: V2, from: INHIBITED, event: ui_resume, guard: {reset_seen: true, jetson_stop: false, run_ok: true, base_stopped: true}, set: {ui_stop: false}, to: RUN, run_entry: true, source: "3, 2.3, T2"}
+  - {id: V3, from: INHIBITED, event: ui_resume, result: rejected, reason: RESUME_REJECTED, status: CONFLICT,
+     conflict: "rev 5 section 3 text: 'rejected with a reason code and the latch kept'. rev 5 section 2.3 text: 'Resume ... returns to RUN only if ...; otherwise the controller is in LOCKED'. The command table says 'rejected and the state stays INHIBITED'. The model follows section 3 and the command table (stay INHIBITED, ui_stop kept); the owner rules.",
+     source: "3, 4 command table vs 2.3"}
+  - {id: V4, from: [LOCKED, CHARGING, CHARGER_FAULT], event: ui_resume, set: {ui_stop: false}, source: "2.3, 3, H33"}
+  - {id: V5, from: RUN, event: ui_resume, result: rejected, reason: RESUME_REJECTED, status: INTERPRETATION,
+     note: "command table says 'no effect'; section 3 says rejected when ui_stop is not asserted, and ui_stop is never set in RUN. State and latches unchanged either way.", source: "3, 4 command table"}
+
+  # Jetson Stop release (3)
+  - {id: L1, from: [LOCKED, INHIBITED, CHARGING, CHARGER_FAULT], event: jetson_stop_release, set: {jetson_stop: false}, status: INTERPRETATION, source: "3, 4 command table",
+     note: "rev 5: 'never ... enters RUN'. The model therefore enters RUN only on the qualified short RESET (or Resume from INHIBITED); a RESET pressed before the release must be pressed again after it. Owner question Q2."}
+  - {id: L2, from: RUN, event: jetson_stop_release, source: "4 command table: no effect"}
+
+  # Charge command (5.6)
+  - {id: G1, from: LOCKED, event: charge_cmd, guard: {charge_pre_ok: true}, to: CHARGING, set: {reset_seen: false}, vars: {charge_cmd_present: true}, result: accepted, source: "5.6"}
+  - {id: G2, from: LOCKED, event: charge_cmd, result: rejected, reason: CHARGE_REJECTED, status: ADDED, note: "5.6 'specific rejection reason', names open", source: "5.6"}
+  - {id: G3, from: [RUN, INHIBITED, CHARGING, CHARGER_FAULT], event: charge_cmd, result: rejected, reason: CHARGE_REJECTED, source: "4 command table, 5.6"}
+  - {id: G4, from: CHARGING, event: charge_cmd_removed, to: LOCKED, vars: {charge_cmd_present: false}, reason: CHARGE_ENDED, record: true, source: "5.6"}
+  - {id: G5, from: [LOCKED, RUN, INHIBITED, CHARGER_FAULT], event: charge_cmd_removed, vars: {charge_cmd_present: false}, source: "5.6"}
+
+  # Motion commands (3)
+  - {id: X1, from: RUN, event: motion_cmd, when: {queued: false}, motor: FOLLOW_CMD, result: accepted, source: "3"}
+  - {id: X2, from: '*', event: motion_cmd, result: rejected, reason: MOTION_REJECTED, status: ADDED, note: "rejection reason name placeholder", source: "3, H23, H35"}
+
+  # Internal: arming completes in LOCKED (2.2)
+  - {id: Q1, from: LOCKED, event: run_entry_check, guard: {reset_seen: true, ui_stop: false, jetson_stop: false, run_ok: true, reboot_pending: false}, to: RUN, run_entry: true, source: "2.2 RUN conditions",
+     note: "with vector param wcm_blocks_run the model also requires wcm_active false (CONFLICT C3)"}
+  - {id: Q2, from: '*', event: run_entry_check, source: "2.2: conditions not met, stay"}
+
+# Rows where rev 5 and a later proposal disagree, or rev 5 disagrees with itself.
+# Both sides kept; the model does not use these to choose.
+conflicts:
+  - id: C1
+    topic: "ZLAC8015D link-loss and heartbeat values"
+    side_a: {text: "0x2000 = 500 ms, 0x1017 = 200 counts", source: "rev 5 before the 11 Nov update; still in the text history"}
+    side_b: {text: "0x2000 = 250 ms, 0x1017 = 100 ms, base heartbeat consumer 300 ms, all proposed", source: "decision D-24 (11 Nov), rev 5 update T10b, 5.4, 8"}
+    open: "1017h unit (0.5 ms or 1 ms per count) settled by CAN capture; values provisional until B3"
+    model_effect: none (timing is outside the event model)
+  - id: C2
+    topic: "base stopped definition for the lift permit"
+    side_a: {text: "both wheels below 1 rpm continuously for 500 ms", source: "rev 5 5.5 and R4"}
+    side_b: {text: "|v| < 0.01 m/s and |w| < 0.02 rad/s from both wheels, 500 ms; 1 rpm only as an encoder cross-check", source: "platform-fw #20, owner proposal of 12 and 13 Nov"}
+    model_effect: "permit vectors use named parameters only"
+  - id: C3
+    topic: "WCM_FAULT re-asserted in LOCKED after acknowledgement"
+    side_a: {text: "does not by itself block RUN (owner-confirmed)", source: "rev 5 5.3"}
+    side_b: {text: "every other RUN condition of rev 3 row 2 holds; 4 events table: LOCKED 'Record; refuse charge command'", source: "rev 5 2.2, 4"}
+    model_effect: "Q1 uses wcm_active as a RUN blocker only when the vector sets param wcm_blocks_run; default false following 5.3"
+  - id: C4
+    topic: "UI Resume rejected in INHIBITED"
+    side_a: {text: "rejected, latch kept, stay INHIBITED", source: "rev 5 3 and command table"}
+    side_b: {text: "otherwise the controller is in LOCKED and needs a physical RESET", source: "rev 5 2.3"}
+    model_effect: "V3 follows side_a; vector h02 step marks CONFLICT"
+  - id: C5
+    topic: "charge-interlock fault outside CHARGING"
+    side_a: {text: "a charge-interlock fault while already inhibited latches normally", source: "rev 5 H21"}
+    side_b: {text: "the interlock fault is a failed transition during one charge attempt", source: "rev 5 5.3, 5.6"}
+    model_effect: "not_applicable lists charge_interlock outside CHARGING"
+  - id: C6
+    topic: "Drive fault in CHARGING"
+    side_a: {text: "Stay; record; RUN needs T10 recovery afterwards", source: "rev 5 4 events table, H30"}
+    side_b: {text: "T10 rows apply 'any state' in the scope text only for INHIBITED and CHARGER_FAULT; CHARGING scope lists T4 to T7 only", source: "rev 5 4 scope by state"}
+    model_effect: "D2 and D4 follow side_a (consistent with H30)"
+  - id: C7
+    topic: "Lift permit carried in RPDO1 or a dedicated cyclic PDO"
+    side_a: {text: "the CTL-017 RPDO must carry the permit or use an equivalent dedicated permit PDO", source: "rev 5 5.5, R4"}
+    side_b: {text: "a dedicated cyclic permit PDO is preferred; a heartbeat is not a permit; COB-ID, layout, period and timeout not decided", source: "platform-fw #20 (13 Nov)"}
+    model_effect: "permit vectors are wire-agnostic"
+  - id: C8
+    topic: "approved arm poses"
+    side_a: {text: "stowed or carry", source: "rev 5 5.5, platform-fw #20 owner proposal"}
+    side_b: {text: "Build 1 has one safe pose, STOWED", source: "platform lead reply in platform-fw #20, 13 Nov"}
+    model_effect: "permit vectors parameterise approved_poses; CARRY case marked CONFLICT"
