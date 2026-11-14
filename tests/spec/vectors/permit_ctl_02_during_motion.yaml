@@ -1,0 +1,338 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: permit_ctl_02_during_motion
+title: 'Permit expiry, withdrawal or a bad frame during a move or homing: STOP and target discard'
+covers:
+- '#20 3'
+- '#20 4 CTL-017'
+- B9
+status: PROPOSAL
+kind: permit_ctl017
+params:
+  permit_timeout_s: 0.3
+param_status:
+  permit_timeout_s: TEST VALUE, TODO(Evans) I8 and CTL-017 object dictionary
+source_note: 'platform-fw #20 (owner proposals 11 to 13 Nov, platform lead reply 13 Nov), rev 5 5.5, R4, B9'
+wire: 'deliberately abstract: COB-ID, mapping, period, sequence width and session handshake are not decided (CONFLICT
+  C7)'
+cases:
+- id: expiry_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - &id001
+      event: boot
+    - &id002
+      event: producer_session
+      params:
+        session: S1
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: MOVING
+      reject: null
+      drive: RUN
+      target: L1350
+  - t: 0.2
+    events:
+    - event: permit
+      params:
+        seq: 2
+        value: true
+        session: S1
+    expect:
+      lift: MOVING
+      reject: null
+      drive: RUN
+  - t: 0.4
+    events:
+    - event: heartbeat
+    expect:
+      lift: MOVING
+      reject: null
+      drive: RUN
+    note: within permit_timeout_s of the last frame
+  - t: 0.55
+    events:
+    - event: heartbeat
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: PERMIT_EXPIRED
+      drive: STOP
+      target: null
+    note: 'heartbeat present, permit frames stopped: stop and discard target'
+- id: withdrawal_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: MOVING
+      reject: null
+      drive: RUN
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 2
+        value: false
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: PERMIT_WITHDRAWN
+      drive: STOP
+      target: null
+- id: bad_frame_while_moving_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 5
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: MOVING
+      reject: null
+      drive: RUN
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 4
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: NO_PERMIT
+      drive: STOP
+    note: 'INTERPRETATION: an out-of-order frame drops the permit'
+- id: stop_without_permit_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: MOVING
+      reject: null
+  - t: 0.1
+    events:
+    - event: cmd
+      params:
+        kind: STOP
+        local_ok: true
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: STOP_CMD
+      drive: STOP
+  - t: 0.5
+    events:
+    - event: cmd
+      params:
+        kind: STOP
+        local_ok: true
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: STOP_CMD
+      drive: STOP
+    note: STOP accepted with no valid permit
+- id: expiry_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1350
+    expect:
+      lift: HOMING
+      reject: null
+      drive: RUN
+      target: HOME
+  - t: 0.2
+    events:
+    - event: permit
+      params:
+        seq: 2
+        value: true
+        session: S1
+    expect:
+      lift: HOMING
+      reject: null
+      drive: RUN
+  - t: 0.4
+    events:
+    - event: heartbeat
+    expect:
+      lift: HOMING
+      reject: null
+      drive: RUN
+    note: within permit_timeout_s of the last frame
+  - t: 0.55
+    events:
+    - event: heartbeat
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: PERMIT_EXPIRED
+      drive: STOP
+      target: null
+    note: 'heartbeat present, permit frames stopped: stop and discard target'
+- id: withdrawal_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1350
+    expect:
+      lift: HOMING
+      reject: null
+      drive: RUN
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 2
+        value: false
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: PERMIT_WITHDRAWN
+      drive: STOP
+      target: null
+- id: bad_frame_while_moving_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 5
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1350
+    expect:
+      lift: HOMING
+      reject: null
+      drive: RUN
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 4
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: NO_PERMIT
+      drive: STOP
+    note: 'INTERPRETATION: an out-of-order frame drops the permit'
+- id: stop_without_permit_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1350
+    expect:
+      lift: HOMING
+      reject: null
+  - t: 0.1
+    events:
+    - event: cmd
+      params:
+        kind: STOP
+        local_ok: true
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: STOP_CMD
+      drive: STOP
+  - t: 0.5
+    events:
+    - event: cmd
+      params:
+        kind: STOP
+        local_ok: true
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: STOP_CMD
+      drive: STOP
+    note: STOP accepted with no valid permit
