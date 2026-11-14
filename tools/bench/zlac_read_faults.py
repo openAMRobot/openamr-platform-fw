@@ -2,8 +2,11 @@
 """zlac_read_faults.py: read and decode the fault state of one ZLAC8015D. Read-only.
 
 Proves: the drive answers SDO on CAN1, and reports no active fault before a motion test.
-Reads 603Fh (fault code, per side: high 16 bits left, low 16 bits right), 6041h (status
-word), 2000h (communication power-down protection time) and 1017h (heartbeat producer time).
+Reads 603Fh (fault code), 6041h (status word), 2000h (communication power-down protection
+time) and 1017h (heartbeat producer time).
+
+603Fh bits are printed as "603Fh[15:0]" or "603Fh[31:16]". The script gives neither half a
+wheel or side meaning: the vendor Quick Start contradicts itself on that (TODO(Evans)).
 
 Pass: 603Fh is 0 and the status word fault bit (bit 3) is clear (exit 0). Exit 1 otherwise,
 with the decoded faults printed. Exit 2 when the drive does not answer.

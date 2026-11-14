@@ -29,7 +29,13 @@ FAULT_NAMES = {
     0x0800: "encoder error",
     0x2000: "speed setting error",
 }
-GLOBAL_MASK = 0x0003 | 0x0100
+
+BENCH_NOTICE = ("BENCH ONLY: this script can command a drive. Run it only under the owner's "
+                "bench procedure, with a second person at the hardwired E-stop. It is not a "
+                "safety function and its output is not stop evidence.")
+
+SPEED_RESOLUTION_OBJECT = (0x2026, 5)  # D-24: must read 1 before any speed maths
+TOLERANCE = 0.10  # pass window for a measured speed against the commanded one
 
 
 def open_bus(channel):
@@ -37,23 +43,38 @@ def open_bus(channel):
 
 
 def decode_603f(value):
-    """Return a list of strings. Global bits sit in the low half, per-side bits are repeated
-    in the high half (left) and low half (right)."""
+    """Return a list of strings for the bits set in 603Fh. Both 16-bit halves use the same bit list.
+
+    The vendor Quick Start contradicts itself on what the low and the high 16 bits mean, so the
+    result names the bit range only ("603Fh[15:0]", "603Fh[31:16]") and never a wheel or side.
+    TODO(Evans): settle the meaning on the real drive before anyone relies on it.
+    """
     out = []
     for bit, name in FAULT_NAMES.items():
-        if bit & GLOBAL_MASK and value & bit:
-            out.append(name)
-    for bit, name in FAULT_NAMES.items():
-        if bit & GLOBAL_MASK:
-            continue
         if value & bit:
-            out.append("right: " + name)
+            out.append("603Fh[15:0]: " + name)
+    for bit, name in FAULT_NAMES.items():
         if value & (bit << 16):
-            out.append("left: " + name)
+            out.append("603Fh[31:16]: " + name)
     return out
 
 
+def add_bench_args(ap):
+    ap.add_argument("--i-am-at-the-bench", action="store_true",
+                    help="required: you are running the owner's bench procedure with a second "
+                         "person at the E-stop")
+
+
+def require_bench(args):
+    """Print the bench notice and refuse (exit 2, nothing sent) without --i-am-at-the-bench."""
+    print(BENCH_NOTICE, file=sys.stderr)
+    if not args.i_am_at_the_bench:
+        refuse("refusing to run: pass --i-am-at-the-bench once the owner's bench procedure is "
+               "in hand and a second person stands at the E-stop")
+
+
 def add_motion_args(ap):
+    add_bench_args(ap)
     ap.add_argument("--wheels-up-confirmed", action="store_true",
                     help="required for any command that can turn a wheel: both drive wheels are "
                          "off the ground and nobody is near them")
@@ -72,6 +93,7 @@ def refuse(message):
 
 
 def require_motion_allowed(args):
+    require_bench(args)
     if not args.wheels_up_confirmed:
         refuse("refusing to send motion commands: pass --wheels-up-confirmed after lifting "
                  "both drive wheels off the ground")
@@ -99,3 +121,32 @@ def speed_to_rpm(speed_m_s, wheel_diameter_m, allow_high_speed=False):
               file=sys.stderr)
         speed_m_s = math.copysign(MAX_SPEED_M_S, speed_m_s)
     return int(round(speed_m_s / (math.pi * wheel_diameter_m) * 60.0))
+
+
+def require_speed_resolution(sdo):
+    """D-24: read 2026h:05 and require 1 before any speed maths. Returns on success, refuses
+    (exit 2) when the object cannot be read or does not read 1."""
+    index, sub = SPEED_RESOLUTION_OBJECT
+    try:
+        value = sdo.read(index, sub)
+    except (TimeoutError, SdoAbort) as exc:
+        refuse("refusing: cannot read 2026h:05 (speed resolution): %s" % exc)
+    if value != 1:
+        refuse("refusing: 2026h:05 (speed resolution) reads %d, 1 is required before any speed "
+               "maths (D-24)" % value)
+    return value
+
+
+def read_wheel_speeds(sdo):
+    """Read 606Ch:01 and 606Ch:02 (0.1 r/min). Raises TimeoutError or SdoAbort when either read
+    fails: there is no partial result."""
+    return (sdo.read(0x606C, 1, signed=True) / 10.0, sdo.read(0x606C, 2, signed=True) / 10.0)
+
+
+def speed_within(measured, commanded, tolerance=TOLERANCE):
+    """True when measured has the sign of commanded and is within tolerance of it."""
+    if commanded == 0 or measured is None:
+        return False
+    if (measured > 0) != (commanded > 0):
+        return False
+    return abs(measured - commanded) <= abs(commanded) * tolerance

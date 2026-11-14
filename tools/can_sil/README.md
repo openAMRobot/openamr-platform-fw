@@ -35,7 +35,7 @@ python3 tools/can_sil/ctl017_emulator.py --channel vcan0
 ```
 
 The ZLAC emulator prints its state every second and accepts fault commands on stdin:
-`oc-l`, `oc-r`, `uv`, `enc-l`, `enc-r`, `busoff`, `busoff-clear`, `power-cycle`.
+`oc-lo`, `oc-hi`, `uv`, `enc-lo`, `enc-hi`, `busoff`, `busoff-clear`, `power-cycle`.
 
 ## What the emulators model
 
@@ -44,8 +44,19 @@ ZLAC8015D:
 - 2000h default 0 keeps the last speed on link loss. A value above 0 stops the wheels when
   no frame addressed to the node arrives for that many ms. Writing 2010h = 1 saves 2000h
   and the ramp times; `power_cycle()` restores them.
-- 603Fh reports faults per side (high 16 bits left, low 16 bits right). Any fault disables
-  the drive until 6040h = 0x80.
+- 603Fh reports a fault bit in the low 16 bits or in the high 16 bits. The emulator gives
+  neither half a wheel or side meaning, because the vendor Quick Start contradicts itself on
+  it (`TODO(Evans)`): inject with `"low"` or `"high"`. Any fault disables the drive until
+  6040h = 0x80.
+- 2026h:05 (speed resolution) reads 1; `inject_speed_resolution()` changes it so the scripts'
+  D-24 refusal can be tested. 1017h is writable, changes the heartbeat period, and is saved
+  by 2010h together with 2000h (`TODO(Evans)`: the real unit and the real save list).
+- Failure injection for the bench scripts: `inject_stop_write_fault("timeout" | "abort")`
+  makes the enabled drive ignore or refuse every write that would stop it (60FFh = 0, or a
+  6040h write that is not the enable word). The write has no effect and the wheels keep
+  turning: the emulator never turns a failed stop into a stopped drive.
+  `inject_speed_scale(sub, factor)` makes one 606Ch sub-index follow its target by a factor.
+- An emulator is protocol evidence, not stop evidence. Nothing here shows that a real wheel stops.
 - 6083h and 6084h are read as ms to ramp 0 to 1000 r/min (`TODO(Evans)`: confirm the vendor definition).
 
 CTL-017 (follows the v1 proposal of openamr-upperbody-fw #15 and D1 to D20 of platform-fw #12;

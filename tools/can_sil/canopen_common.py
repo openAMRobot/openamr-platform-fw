@@ -93,6 +93,10 @@ class CanopenNode:
     def on_rx_frame(self, msg):
         pass
 
+    def swallow_write(self, index, sub, value):
+        """Failure injection hook: return True to drop an SDO write with no response."""
+        return False
+
     def tick(self, dt):
         pass
 
@@ -203,6 +207,8 @@ class CanopenNode:
                 self._abort(index, sub, ABORT_DEVICE_STATE)
                 return
             value = unpack_value(data[4:4 + size], entry["signed"])
+            if self.swallow_write(index, sub, value):
+                return
             abort = self.on_write(index, sub, value)
             if abort:
                 self._abort(index, sub, abort)

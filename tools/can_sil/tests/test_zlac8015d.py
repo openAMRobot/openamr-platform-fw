@@ -26,9 +26,9 @@ def enable(sdo):
         sdo.write(0x6040, 0, cw, 2)
 
 
-def run_at(sdo, left, right):
-    sdo.write(0x60FF, 1, left, 4, signed=True)
-    sdo.write(0x60FF, 2, right, 4, signed=True)
+def run_at(sdo, sub1, sub2):
+    sdo.write(0x60FF, 1, sub1, 4, signed=True)
+    sdo.write(0x60FF, 2, sub2, 4, signed=True)
 
 
 def test_heartbeat_and_boot(master, make_bus):
@@ -133,11 +133,11 @@ def test_save_2010_persists_across_power_cycle(zlac, sdo):
 
 
 @pytest.mark.parametrize("inject,expected", [
-    (lambda z: z.inject_over_current("left"), 0x00040000),
-    (lambda z: z.inject_over_current("right"), 0x00000004),
+    (lambda z: z.inject_over_current("high"), 0x00040000),
+    (lambda z: z.inject_over_current("low"), 0x00000004),
     (lambda z: z.inject_under_voltage(), 0x0002),
-    (lambda z: z.inject_encoder_error("right"), 0x0800),
-    (lambda z: z.inject_encoder_error("left"), 0x08000000),
+    (lambda z: z.inject_encoder_error("low"), 0x0800),
+    (lambda z: z.inject_encoder_error("high"), 0x08000000),
 ])
 def test_faults_stop_wheels_and_report_603f(zlac, sdo, inject, expected):
     sdo.write(0x6083, 1, 20, 4)
