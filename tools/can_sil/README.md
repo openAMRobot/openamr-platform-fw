@@ -12,6 +12,7 @@ hardware. Where the real behaviour is not recorded, the emulator says so with `T
 | `canopen_common.py` | NMT, heartbeat producer, expedited SDO server and a small SDO client |
 | `zlac8015d_emulator.py` | One ZLAC8015D V4.x node (node 1): 6040h, 6041h, 6060h, 60FFh, 606Ch, 6083h, 6084h, 605Ah, 6085h, 603Fh, 2000h, 2010h |
 | `ctl017_emulator.py` | CTL-017 lift node 0x10: motor model (18 mm/s), Hall counts, three stop sensors, travel timeout, head light and Getac outputs. Object dictionary from the #15 proposal (`ctl017_od_v1.py`), `TODO(Evans)` |
+| `can_trace.py` | record and replay of CAN traces in `candump -L` format; `check` replays a bench capture into an emulator and compares every SDO response with the capture |
 | `tests/test_ctl017_od_drift.py` | fails when the emulator, `ctl017_od_v1.py` or the PDO layouts differ from the #15 object table snapshot in `tests/data/` |
 | `tests/` | pytest suite (50 tests, about 1 minute; includes the bench scripts) |
 
@@ -89,6 +90,28 @@ the dictionary is a proposal, `TODO(Evans)`):
 
 Bench speed guard (`tools/bench`): up to 0.1 m/s as given, 0.1 to 0.2 m/s capped with a
 warning, above 0.2 m/s refused (exit 2) unless `--allow-high-speed`, never above 0.5 m/s.
+
+## Traces: record, replay, regression
+
+`can_trace.py` keeps bench captures as regression inputs. The file format is `candump -L`
+(`(1731600000.123456) can1 601#2B00200000000000`), so `candump -L can1 > bench.log` works as well.
+
+```
+python3 tools/can_sil/can_trace.py record can1 bench.log --seconds 60      # listen only
+python3 tools/can_sil/zlac8015d_emulator.py --channel vcan0 &              # emulator under test
+python3 tools/can_sil/can_trace.py check bench.log vcan0 --node zlac --exact --speed 0
+python3 tools/can_sil/can_trace.py replay bench.log vcan0 --ids 601
+```
+
+`check` sends the host frames of the capture (NMT, SDO requests, and for CTL-017 the core
+heartbeat and RPDOs) and compares every SDO response of the emulator with the one in the
+capture: same kind and same object, same abort code, and with `--exact` the same data bytes
+except for objects named in `--volatile` (live values such as 606Ch). A capture with no SDO
+request, a malformed line or a node that does not answer is a failure, never a pass. A line that
+does not parse is an error unless `--lenient`. On a real interface (not `vcan*`) `replay` and
+`check` print that they need the owner's bench procedure and a second person at the E-stop and
+refuse without `--i-am-at-the-bench`. A trace shows what was on the wire; it is protocol
+evidence, never proof that a wheel or the lift stopped.
 
 ## Limits
 
