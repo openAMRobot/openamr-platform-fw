@@ -1,0 +1,219 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h08
+title: Missing, stale and implausible encoder data refuse RUN with the matching INPUT_INVALID sub-cause
+covers:
+- T7
+- H8
+status: REV5
+steps:
+- t: 0.0
+  events:
+  - event: boot
+    params:
+      cause: POWER_ON
+  inputs:
+    run_ok: true
+    arming_ok: true
+    qualified: true
+    base_stopped: true
+    charge_pre_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_POWER_ON
+- t: 0.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.2
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    first_reason: null
+    reason_mask: []
+- t: 0.3
+  events:
+  - event: input_invalid
+    params:
+      subcause: MISSING
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - INPUT_INVALID:MISSING
+    first_reason: INPUT_INVALID:MISSING
+- t: 0.4
+  events:
+  - event: reset_short
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: refuse RUN while invalid
+- t: 0.5
+  events:
+  - event: reset_short
+  inputs:
+    run_ok: true
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+- t: 0.6
+  events:
+  - event: input_invalid
+    params:
+      subcause: STALE
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - INPUT_INVALID:STALE
+    first_reason: INPUT_INVALID:STALE
+- t: 0.7
+  events:
+  - event: reset_short
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: refuse RUN while invalid
+- t: 0.8
+  events:
+  - event: reset_short
+  inputs:
+    run_ok: true
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+- t: 0.8999999999999999
+  events:
+  - event: input_invalid
+    params:
+      subcause: IMPLAUSIBLE
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - INPUT_INVALID:IMPLAUSIBLE
+    first_reason: INPUT_INVALID:IMPLAUSIBLE
+- t: 0.9999999999999999
+  events:
+  - event: reset_short
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: refuse RUN while invalid
+- t: 1.0999999999999999
+  events:
+  - event: reset_short
+  inputs:
+    run_ok: true
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true

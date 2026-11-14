@@ -77,6 +77,7 @@ class StateMachineModel:
         self.reason_mask: list = []
         self.first_reason: str | None = None
         self.visited = {self.state}
+        self.tick_start = self.state
         self._reasons: list = []
         self._results: list = []
         self._rows: list = []
@@ -107,7 +108,7 @@ class StateMachineModel:
 
     def _check_applicable(self, event: str) -> None:
         for na in self.na:
-            if na["event"] == event and self.state in na["states"]:
+            if na["event"] == event and self.tick_start in na["states"]:
                 raise SpecError(f"event {event} is not applicable in {self.state} ({na['source']})")
 
     def _record(self, reason: str, prev_state: str) -> None:
@@ -186,6 +187,7 @@ class StateMachineModel:
         if inputs:
             self.inputs.update(inputs)
         self._reasons, self._results, self._rows = [], [], []
+        self.tick_start = self.state
 
         def rank(ev):
             name = ev["event"]
@@ -497,7 +499,19 @@ SM_REQUIRED = ("state", "latches", "outputs", "motion_admissible")
 
 
 def run_vector(vec: dict, spec: dict | None = None) -> tuple[list, Any]:
-    """Return (errors, model). Errors are empty when the vector agrees with the table."""
+    """Return (errors, model). Errors are empty when the vector agrees with the table.
+
+    A vector either has 'steps' or a list of 'cases', each with its own 'steps' and an
+    independent model instance (used for the H24 matrix).
+    """
+    if "cases" in vec:
+        errs, last = [], None
+        for case in vec["cases"]:
+            sub = {**{k: v for k, v in vec.items() if k != "cases"}, **case}
+            sub["id"] = f"{vec['id']}/{case['id']}"
+            e, last = run_vector(sub, copy.deepcopy(spec) if spec is not None else None)
+            errs += e
+        return errs, last
     kind = vec.get("kind", "state_machine")
     params = {k: v for k, v in (vec.get("params") or {}).items()}
     errs: list = []

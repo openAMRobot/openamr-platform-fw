@@ -1,0 +1,1924 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h24
+title: Every cell of the faults-by-state table, with the INHIBITED column and the scope rules
+covers:
+- H24
+- 4 events by state
+status: REV5
+cases:
+- id: ui_stop@LOCKED
+  steps:
+  - t: 0.0
+    events: &id001
+    - event: boot
+      params:
+        cause: POWER_ON
+    inputs: &id002
+      run_ok: true
+      arming_ok: true
+      qualified: true
+      base_stopped: true
+      charge_pre_ok: true
+    expect: &id003
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+      reasons:
+      - BOOT_POWER_ON
+  - t: 0.1
+    events: &id004
+    - event: jetson_stop_release
+    expect: &id005
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 0.2
+    events: &id006
+    - event: reset_short
+    expect: &id007
+      state: RUN
+      latches:
+        reset_seen: true
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: true
+      first_reason: null
+      reason_mask: []
+  - t: 0.3
+    events: &id008
+    - event: safety_ok_low
+    inputs: &id009
+      run_ok: false
+    expect: &id010
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 1.0
+    events:
+    - event: ui_stop
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (ui_stop, LOCKED)
+- id: ui_stop@RUN
+  steps:
+  - t: 0.0
+    events: &id011
+    - event: boot
+      params:
+        cause: POWER_ON
+    inputs: &id012
+      run_ok: true
+      arming_ok: true
+      qualified: true
+      base_stopped: true
+      charge_pre_ok: true
+    expect: &id013
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+      reasons:
+      - BOOT_POWER_ON
+  - t: 0.1
+    events: &id014
+    - event: jetson_stop_release
+    expect: &id015
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 0.2
+    events: &id016
+    - event: reset_short
+    expect: &id017
+      state: RUN
+      latches:
+        reset_seen: true
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: true
+      first_reason: null
+      reason_mask: []
+  - t: 1.0
+    events:
+    - event: ui_stop
+    expect:
+      state: INHIBITED
+      latches:
+        reset_seen: true
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (ui_stop, RUN)
+- id: ui_stop@INHIBITED
+  steps:
+  - t: 0.0
+    events: &id018
+    - event: boot
+      params:
+        cause: POWER_ON
+    inputs: &id019
+      run_ok: true
+      arming_ok: true
+      qualified: true
+      base_stopped: true
+      charge_pre_ok: true
+    expect: &id020
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+      reasons:
+      - BOOT_POWER_ON
+  - t: 0.1
+    events: &id021
+    - event: jetson_stop_release
+    expect: &id022
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 0.2
+    events: &id023
+    - event: reset_short
+    expect: &id024
+      state: RUN
+      latches:
+        reset_seen: true
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: true
+      first_reason: null
+      reason_mask: []
+  - t: 0.3
+    events: &id025
+    - event: ui_stop
+    expect: &id026
+      state: INHIBITED
+      latches:
+        reset_seen: true
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 1.0
+    events:
+    - event: ui_stop
+    expect:
+      state: INHIBITED
+      latches:
+        reset_seen: true
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (ui_stop, INHIBITED)
+- id: ui_stop@CHARGING
+  steps:
+  - t: 0.0
+    events: &id027
+    - event: boot
+      params:
+        cause: POWER_ON
+    inputs: &id028
+      run_ok: true
+      arming_ok: true
+      qualified: true
+      base_stopped: true
+      charge_pre_ok: true
+    expect: &id029
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+      reasons:
+      - BOOT_POWER_ON
+  - t: 0.1
+    events: &id030
+    - event: jetson_stop_release
+    expect: &id031
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 0.2
+    events: &id032
+    - event: reset_short
+    expect: &id033
+      state: RUN
+      latches:
+        reset_seen: true
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: true
+      first_reason: null
+      reason_mask: []
+  - t: 0.3
+    events: &id034
+    - event: safety_ok_low
+    inputs: &id035
+      run_ok: false
+    expect: &id036
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 0.4
+    events: &id037
+    - event: charge_cmd
+    expect: &id038
+      state: CHARGING
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'ON'
+      motion_admissible: false
+      results:
+      - accepted
+  - t: 1.0
+    events:
+    - event: ui_stop
+    expect:
+      state: CHARGING
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'ON'
+      motion_admissible: false
+    note: rev 5 section 4 cell (ui_stop, CHARGING)
+- id: ui_stop@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: &id039
+    - event: boot
+      params:
+        cause: POWER_ON
+    inputs: &id040
+      run_ok: true
+      arming_ok: true
+      qualified: true
+      base_stopped: true
+      charge_pre_ok: true
+    expect: &id041
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+      reasons:
+      - BOOT_POWER_ON
+  - t: 0.1
+    events: &id042
+    - event: jetson_stop_release
+    expect: &id043
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 0.2
+    events: &id044
+    - event: reset_short
+    expect: &id045
+      state: RUN
+      latches:
+        reset_seen: true
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: true
+      first_reason: null
+      reason_mask: []
+  - t: 0.3
+    events: &id046
+    - event: safety_ok_low
+    inputs: &id047
+      run_ok: false
+    expect: &id048
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 0.4
+    events: &id049
+    - event: charge_cmd
+    expect: &id050
+      state: CHARGING
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'ON'
+      motion_admissible: false
+      results:
+      - accepted
+  - t: 0.5
+    events: &id051
+    - event: wcm_fault
+    expect: &id052
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+        wcm_latched: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+  - t: 1.0
+    events:
+    - event: ui_stop
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (ui_stop, CHARGER_FAULT)
+- id: safety_ok_low@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: safety_ok_low
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (safety_ok_low, LOCKED)
+- id: safety_ok_low@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: safety_ok_low
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (safety_ok_low, RUN)
+- id: safety_ok_low@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: safety_ok_low
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (safety_ok_low, INHIBITED)
+- id: safety_ok_low@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: safety_ok_low
+    expect:
+      state: CHARGING
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'ON'
+      motion_admissible: false
+    note: rev 5 section 4 cell (safety_ok_low, CHARGING)
+- id: safety_ok_low@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: safety_ok_low
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (safety_ok_low, CHARGER_FAULT)
+- id: estop_diag@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: estop_diag
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (estop_diag, LOCKED)
+- id: estop_diag@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: estop_diag
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (estop_diag, RUN)
+- id: estop_diag@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: estop_diag
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (estop_diag, INHIBITED)
+- id: estop_diag@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: estop_diag
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (estop_diag, CHARGING)
+- id: estop_diag@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: estop_diag
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (estop_diag, CHARGER_FAULT)
+- id: session_lost@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: session_lost
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (session_lost, LOCKED)
+- id: session_lost@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: session_lost
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (session_lost, RUN)
+- id: session_lost@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: session_lost
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (session_lost, INHIBITED)
+- id: session_lost@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: session_lost
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (session_lost, CHARGING)
+- id: session_lost@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: session_lost
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: true
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (session_lost, CHARGER_FAULT)
+- id: bms_fault@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: bms_fault
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (bms_fault, LOCKED)
+- id: bms_fault@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: bms_fault
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (bms_fault, RUN)
+- id: bms_fault@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: bms_fault
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (bms_fault, INHIBITED)
+- id: bms_fault@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: bms_fault
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (bms_fault, CHARGING)
+- id: bms_fault@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: bms_fault
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (bms_fault, CHARGER_FAULT)
+- id: input_invalid@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: input_invalid
+      params:
+        subcause: STALE
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (input_invalid, LOCKED)
+- id: input_invalid@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: input_invalid
+      params:
+        subcause: STALE
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (input_invalid, RUN)
+- id: input_invalid@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: input_invalid
+      params:
+        subcause: STALE
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (input_invalid, INHIBITED)
+- id: input_invalid@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: input_invalid
+      params:
+        subcause: STALE
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (input_invalid, CHARGING)
+- id: input_invalid@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: input_invalid
+      params:
+        subcause: STALE
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (input_invalid, CHARGER_FAULT)
+- id: reset_hold_5s@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: reset_hold_5s
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (reset_hold_5s, LOCKED)
+- id: reset_hold_5s@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: reset_hold_5s
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (reset_hold_5s, RUN)
+- id: reset_hold_5s@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: reset_hold_5s
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (reset_hold_5s, INHIBITED)
+- id: reset_hold_5s@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: reset_hold_5s
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (reset_hold_5s, CHARGING)
+- id: reset_hold_5s@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: reset_hold_5s
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (reset_hold_5s, CHARGER_FAULT)
+- id: wcm_fault@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: wcm_fault
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (wcm_fault, LOCKED)
+- id: wcm_fault@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: wcm_fault
+    expect:
+      state: RUN
+      latches:
+        reset_seen: true
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: true
+    note: rev 5 section 4 cell (wcm_fault, RUN)
+- id: wcm_fault@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: wcm_fault
+    expect:
+      state: INHIBITED
+      latches:
+        reset_seen: true
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'OFF'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (wcm_fault, INHIBITED)
+- id: wcm_fault@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: wcm_fault
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (wcm_fault, CHARGING)
+- id: wcm_fault@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: wcm_fault
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (wcm_fault, CHARGER_FAULT)
+- id: drive_fault@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: drive_fault
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_fault, LOCKED)
+- id: drive_fault@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: drive_fault
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_fault, RUN)
+- id: drive_fault@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: drive_fault
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_fault, INHIBITED)
+- id: drive_fault@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: drive_fault
+    expect:
+      state: CHARGING
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'ON'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_fault, CHARGING)
+- id: drive_fault@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: drive_fault
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_fault, CHARGER_FAULT)
+- id: drive_comms@LOCKED
+  steps:
+  - t: 0.0
+    events: *id001
+    inputs: *id002
+    expect: *id003
+  - t: 0.1
+    events: *id004
+    expect: *id005
+  - t: 0.2
+    events: *id006
+    expect: *id007
+  - t: 0.3
+    events: *id008
+    inputs: *id009
+    expect: *id010
+  - t: 1.0
+    events:
+    - event: drive_comms
+      params:
+        kind: COMMS
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_comms, LOCKED)
+- id: drive_comms@RUN
+  steps:
+  - t: 0.0
+    events: *id011
+    inputs: *id012
+    expect: *id013
+  - t: 0.1
+    events: *id014
+    expect: *id015
+  - t: 0.2
+    events: *id016
+    expect: *id017
+  - t: 1.0
+    events:
+    - event: drive_comms
+      params:
+        kind: COMMS
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_comms, RUN)
+- id: drive_comms@INHIBITED
+  steps:
+  - t: 0.0
+    events: *id018
+    inputs: *id019
+    expect: *id020
+  - t: 0.1
+    events: *id021
+    expect: *id022
+  - t: 0.2
+    events: *id023
+    expect: *id024
+  - t: 0.3
+    events: *id025
+    expect: *id026
+  - t: 1.0
+    events:
+    - event: drive_comms
+      params:
+        kind: COMMS
+    expect:
+      state: LOCKED
+      latches:
+        reset_seen: false
+        ui_stop: true
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_comms, INHIBITED)
+- id: drive_comms@CHARGING
+  steps:
+  - t: 0.0
+    events: *id027
+    inputs: *id028
+    expect: *id029
+  - t: 0.1
+    events: *id030
+    expect: *id031
+  - t: 0.2
+    events: *id032
+    expect: *id033
+  - t: 0.3
+    events: *id034
+    inputs: *id035
+    expect: *id036
+  - t: 0.4
+    events: *id037
+    expect: *id038
+  - t: 1.0
+    events:
+    - event: drive_comms
+      params:
+        kind: COMMS
+    expect:
+      state: CHARGING
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'ON'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_comms, CHARGING)
+- id: drive_comms@CHARGER_FAULT
+  steps:
+  - t: 0.0
+    events: *id039
+    inputs: *id040
+    expect: *id041
+  - t: 0.1
+    events: *id042
+    expect: *id043
+  - t: 0.2
+    events: *id044
+    expect: *id045
+  - t: 0.3
+    events: *id046
+    inputs: *id047
+    expect: *id048
+  - t: 0.4
+    events: *id049
+    expect: *id050
+  - t: 0.5
+    events: *id051
+    expect: *id052
+  - t: 1.0
+    events:
+    - event: drive_comms
+      params:
+        kind: COMMS
+    expect:
+      state: CHARGER_FAULT
+      latches:
+        reset_seen: false
+        ui_stop: false
+        jetson_stop: false
+      outputs:
+        motor: ZERO
+        lamp: 'ON'
+        charge_request: 'OFF'
+      motion_admissible: false
+    note: rev 5 section 4 cell (drive_comms, CHARGER_FAULT)

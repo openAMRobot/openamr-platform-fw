@@ -1,0 +1,160 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h25
+title: 'RESET wire breaks during RUN: INPUT_INVALID at 2 s, one reboot at 5 s, return low does not restore RUN'
+covers:
+- T8
+- '5.1'
+- H25
+status: REV5
+steps:
+- t: 0.0
+  events:
+  - event: boot
+    params:
+      cause: POWER_ON
+  inputs:
+    run_ok: true
+    arming_ok: true
+    qualified: true
+    base_stopped: true
+    charge_pre_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_POWER_ON
+- t: 0.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.2
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    first_reason: null
+    reason_mask: []
+- t: 0.25
+  events:
+  - event: motion_cmd
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: FOLLOW_CMD
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    results:
+    - accepted
+- t: 0.3
+  events: []
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: FOLLOW_CMD
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+  note: 'high for less than 2 s: short-press rules, no effect in RUN'
+- t: 2.3
+  events:
+  - event: input_invalid
+    params:
+      subcause: RESET_HIGH
+  inputs:
+    arming_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - INPUT_INVALID:RESET_HIGH
+- t: 5.3
+  events:
+  - event: reset_hold_5s
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - REBOOT_REQUESTED
+- t: 5.4
+  events: []
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: 'input returns low: nothing restored'
+- t: 6.0
+  events:
+  - event: boot
+    params:
+      cause: SOFTWARE
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false

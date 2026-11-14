@@ -98,7 +98,8 @@ events:
 # Model variables (not latches): charge_cmd_present (held charge command), wcm_active
 # (WCM_FAULT input level), reboot_pending (between T8 and the following boot), motor.
 
-# Events that do not apply in a state. A vector that sends them there is a spec error.
+# Events that do not apply in a state (judged on the state at the start of the tick).
+# A vector that sends them there is a spec error.
 not_applicable:
   - {event: charge_interlock, states: [LOCKED, RUN, INHIBITED, CHARGER_FAULT], source: "5.6: defined only during a charge attempt",
      note: "H21 says 'a charge-interlock fault while already inhibited latches normally'; rev 5 defines the fault only in CHARGING. Owner question Q4."}
@@ -154,6 +155,8 @@ transitions:
   - {id: W2, from: [LOCKED, RUN, INHIBITED, CHARGER_FAULT], event: wcm_fault, vars: {wcm_active: true}, reason: CHARGER_FAULT, record: true, source: "4 events by state: record"}
   - {id: W3, from: '*', event: wcm_fault_clear, vars: {wcm_active: false}, source: "5.3"}
   - {id: K1, from: CHARGING, event: charge_interlock, to: CHARGER_FAULT, set: {interlock_latched: true}, reason: CHARGE_INTERLOCK, record: true, source: "5.6, H28"}
+  - {id: K2, from: CHARGER_FAULT, event: charge_interlock, set: {interlock_latched: true}, reason: CHARGE_INTERLOCK, record: true, status: INTERPRETATION,
+     note: "reachable only in the tick that entered CHARGER_FAULT from CHARGING (both faults in one tick, 4.1, H11); applicability is judged on the state at tick start", source: "4.1, H11"}
 
   # Drive (T10)
   - {id: D1, from: [RUN, INHIBITED], event: drive_fault, to: LOCKED, set: {reset_seen: false}, motor: ZERO, reason: DRIVE_FAULT, record: true, source: "T10a"}

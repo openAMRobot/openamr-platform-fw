@@ -1,0 +1,178 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h30
+title: 'Drive fault and comms loss during CHARGING: charging continues, RUN needs T10 recovery'
+covers:
+- T10a
+- T10b
+- H30
+status: REV5
+conflict: C6
+steps:
+- t: 0.0
+  events:
+  - event: boot
+    params:
+      cause: POWER_ON
+  inputs:
+    run_ok: true
+    arming_ok: true
+    qualified: true
+    base_stopped: true
+    charge_pre_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_POWER_ON
+- t: 0.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.2
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    first_reason: null
+    reason_mask: []
+- t: 0.3
+  events:
+  - event: safety_ok_low
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.4
+  events:
+  - event: charge_cmd
+  expect:
+    state: CHARGING
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'ON'
+    motion_admissible: false
+    results:
+    - accepted
+- t: 0.5
+  events:
+  - event: drive_fault
+  expect:
+    state: CHARGING
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'ON'
+    motion_admissible: false
+    reasons:
+    - DRIVE_FAULT
+- t: 0.6
+  events:
+  - event: drive_comms
+    params:
+      kind: COMMS
+  expect:
+    state: CHARGING
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'ON'
+    motion_admissible: false
+    reasons:
+    - DRIVE_COMMS
+- t: 0.7
+  events:
+  - event: charge_cmd_removed
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.8
+  events:
+  - event: reset_short
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: 'comms back but config not read back: run_ok false'
+- t: 0.9
+  events:
+  - event: reset_short
+  inputs:
+    run_ok: true
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true

@@ -1,0 +1,230 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h10
+title: 'RESET input cases of 5.1: stuck high, open wire, stuck low, high at boot, warm reset'
+covers:
+- T8
+- R2
+- H10
+- '5.1'
+status: REV5
+steps:
+- t: 0.0
+  events:
+  - event: boot
+    params:
+      cause: POWER_ON
+  inputs:
+    run_ok: true
+    arming_ok: true
+    qualified: true
+    base_stopped: true
+    charge_pre_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_POWER_ON
+- t: 0.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.2
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    first_reason: null
+    reason_mask: []
+- t: 0.3
+  events:
+  - event: input_invalid
+    params:
+      subcause: RESET_HIGH
+  inputs:
+    arming_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - INPUT_INVALID:RESET_HIGH
+  note: 'open wire or stuck high: at 2 s motion inhibited at once'
+- t: 3.3
+  events:
+  - event: reset_hold_5s
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - REBOOT_REQUESTED
+  note: one reboot request at 5 s
+- t: 4.0
+  events:
+  - event: boot
+    params:
+      cause: SOFTWARE
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 4.1
+  events:
+  - event: reset_short
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: 'input still high after reboot: not seen low, ignored, no loop (arming_ok false)'
+- t: 4.2
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 6.2
+  events:
+  - event: input_invalid
+    params:
+      subcause: RESET_HIGH
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - INPUT_INVALID:RESET_HIGH
+  note: 2 s rule applies in every state; no second reboot without release and new press
+- t: 7.0
+  events: []
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: 'stuck low: no press events, can never set reset_seen; undetectable'
+- t: 8.0
+  events:
+  - event: boot
+    params:
+      cause: WATCHDOG
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_WATCHDOG
+  note: 'held across a warm reset: ignored until seen low'
+- t: 8.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 8.2
+  events:
+  - event: reset_short
+  inputs:
+    arming_ok: true
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true

@@ -1,0 +1,157 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h12
+title: 'Drive fault: motion refused, recovery needs physical RESET; drive fault after UI Stop keeps ui_stop'
+covers:
+- T10a
+- H12
+status: REV5
+steps:
+- t: 0.0
+  events:
+  - event: boot
+    params:
+      cause: POWER_ON
+  inputs:
+    run_ok: true
+    arming_ok: true
+    qualified: true
+    base_stopped: true
+    charge_pre_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_POWER_ON
+- t: 0.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.2
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    first_reason: null
+    reason_mask: []
+- t: 0.3
+  events:
+  - event: drive_fault
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    first_reason: DRIVE_FAULT
+- t: 0.35
+  events:
+  - event: motion_cmd
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    results:
+    - rejected
+- t: 0.4
+  events: []
+  inputs:
+    run_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: 'drive fault cleared, config verified: no automatic RUN'
+- t: 0.5
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+- t: 0.6
+  events:
+  - event: ui_stop
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.7
+  events:
+  - event: drive_fault
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    first_reason: DRIVE_FAULT
