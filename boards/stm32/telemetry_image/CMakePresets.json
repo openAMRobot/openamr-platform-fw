@@ -1,0 +1,33 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake"
+        },
+        {
+            "name": "Debug",
+            "inherits": "default",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+        },
+        {
+            "name": "Release",
+            "inherits": "default",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        },
+        {
+            "name": "RenodeTest",
+            "displayName": "Debug with TLM_TEST_PARAMS (unapproved test values, Renode only)",
+            "inherits": "default",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "TLM_TEST_PARAMS": "ON" }
+        }
+    ],
+    "buildPresets": [
+        { "name": "Debug", "configurePreset": "Debug" },
+        { "name": "Release", "configurePreset": "Release" },
+        { "name": "RenodeTest", "configurePreset": "RenodeTest" }
+    ]
+}

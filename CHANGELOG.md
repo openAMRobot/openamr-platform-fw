@@ -5,6 +5,11 @@ All notable changes to this repository are documented here. Dates are ISO-8601.
 ## [Unreleased]
 
 ### Added
+- Proposal: `boards/stm32/telemetry_image/`, a second STM32H723 target that only observes
+  (read-only SDO uploads and heartbeat on CAN1, sensor UART parsers, JSON status line on USART3,
+  FreeRTOS with static allocation). Renode scenarios (`tools/ci/renode_telemetry.py`, drive stub
+  `tools/ci/renode_drive_stub.py`) and a console-log checker with host tests
+  (`tools/ci/telemetry_log.py`, `tests/host/telemetry_log/`). Not run on a board.
 - Full firmware documentation set: control loop, `/debug/*` telemetry contract, encoder
   ripple calibration, bring-up, flashing, motion safety, and troubleshooting.
 - `LICENSE` (MIT for OpenAMRobot original work), `LICENSE-Apache-2.0` (for the

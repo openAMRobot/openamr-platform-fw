@@ -1,0 +1,234 @@
+# SPDX-License-Identifier: MIT
+# Drive stub for the telemetry image, loaded INTO Renode (IronPython 2.7) by
+# tools/ci/renode_telemetry.py with "include @renode_drive_stub.py".
+#
+# It is a CANopen node (default node 1) attached to the Renode CAN hub next to
+# FDCAN1 of the image. It answers expedited SDO uploads from a small object
+# table, sends a boot-up message and heartbeats, and can misbehave on request
+# (stay silent, stop heartbeats, abort one object, duplicate or delay answers).
+# All its timing is Renode virtual time.
+#
+# It is a test fixture, not a model of the ZLAC8015D: the values and the
+# answer delay are made up. The ZLAC emulator of platform-fw #38
+# (tools/can_sil) was not reused: it needs a Linux vcan interface and wall
+# clock threads, cannot attach to a Renode CAN hub, and has no object 2026h.
+#
+# The stub also checks the read-only boundary from the outside: every frame
+# the image sends is inspected, and anything that is not an SDO
+# initiate-upload request to the node is recorded as a violation.
+#
+# Monitor commands (after the machine and the hub exist):
+#   tlm_stub_attach "hubName"        create the stub and attach it to the hub
+#   tlm_stub_set "key" value         see CONFIG below
+#   tlm_stub_object index sub size value
+#   tlm_stub_tfluna "sysbus.usart2" period_ms distance_cm strength   (0 ms = stop)
+#   tlm_stub_mb7060 "sysbus.uart4" period_ms range_cm                (0 ms = stop)
+#   tlm_stub_report                  print one "TLM_STUB {json}" line
+from Antmicro.Renode.Core import EmulationManager
+from Antmicro.Renode.Core.CAN import CANMessageFrame
+from Antmicro.Renode.Core.Structure import NullRegistrationPoint
+from Antmicro.Renode.Peripherals.Bus import Access, BusHookDelegate, SysbusAccessWidth
+from Antmicro.Renode.Peripherals.CAN import ICAN
+from Antmicro.Renode.Time import TimeInterval
+from Antmicro.Renode.Tools.Network import CANHub
+from System import Action, Array, Byte, UInt64
+
+ABORT_NO_OBJECT = 0x06020000
+
+CONFIG = {
+    "node": 1,
+    "silent": 0,            # 1: answer nothing and send no heartbeat
+    "heartbeat_ms": 100,    # 0: no heartbeat
+    "response_us": 500,     # answer delay
+    "abort_index": 0,       # with abort_sub: this object answers with an abort
+    "abort_sub": 0,
+    "duplicate": 0,         # 1: every answer is sent twice, 200 us apart
+    "late_index": 0,        # with late_sub: this object answers after late_us
+    "late_sub": 0,
+    "late_us": 50000,
+}
+
+
+class DriveStub(ICAN):
+    def __init__(self, machine):
+        self.machine = machine
+        self.handlers = []
+        self.objects = {}        # (index, sub) -> (size, value)
+        self.requests = 0
+        self.responses = 0
+        self.heartbeats = 0
+        self.violations = []
+        self.other_frames = 0
+        self.hb_generation = 0
+        self.feeders = {}
+
+    # ---- ICAN ----
+    def add_FrameSent(self, handler):
+        self.handlers.append(handler)
+
+    def remove_FrameSent(self, handler):
+        self.handlers.remove(handler)
+
+    def Reset(self):
+        pass
+
+    def OnFrameReceived(self, frame):
+        data = [int(b) for b in frame.Data]
+        node = CONFIG["node"]
+        is_upload = (not frame.ExtendedFormat and not frame.RemoteFrame and frame.Id == 0x600 + node
+                     and len(data) == 8 and data[0] == 0x40 and data[4:] == [0, 0, 0, 0])
+        if not is_upload:
+            # Anything else from the image breaks its read-only boundary.
+            self.violations.append("id 0x%X data %s" % (frame.Id, " ".join("%02X" % b for b in data)))
+            return
+        self.requests += 1
+        if CONFIG["silent"]:
+            return
+        index = data[1] | (data[2] << 8)
+        sub = data[3]
+        delay = CONFIG["response_us"]
+        if index == CONFIG["late_index"] and sub == CONFIG["late_sub"] and index != 0:
+            delay = CONFIG["late_us"]
+        if index == CONFIG["abort_index"] and sub == CONFIG["abort_sub"] and index != 0:
+            payload = [0x80, data[1], data[2], sub] + le(ABORT_NO_OBJECT, 4)
+        elif (index, sub) in self.objects:
+            size, value = self.objects[(index, sub)]
+            payload = [0x43 | ((4 - size) << 2), data[1], data[2], sub] + le(value, size) + [0] * (4 - size)
+        else:
+            payload = [0x80, data[1], data[2], sub] + le(ABORT_NO_OBJECT, 4)
+        self.after(delay, lambda: self.respond(payload))
+        if CONFIG["duplicate"]:
+            self.after(delay + 200, lambda: self.respond(payload))
+
+    # ---- helpers ----
+    def after(self, micros, fn):
+        self.machine.ScheduleAction(TimeInterval.FromMicroseconds(UInt64(micros)),
+                                    Action[TimeInterval](lambda _ts: fn()))
+
+    def transmit(self, can_id, data):
+        frame = CANMessageFrame(can_id, Array[Byte](data), False, False)
+        for handler in list(self.handlers):
+            handler(frame)
+
+    def respond(self, payload):
+        if CONFIG["silent"]:
+            return
+        self.responses += 1
+        self.transmit(0x580 + CONFIG["node"], payload)
+
+    def start_heartbeat(self):
+        self.hb_generation += 1
+        generation = self.hb_generation
+        if CONFIG["silent"] or CONFIG["heartbeat_ms"] <= 0:
+            return
+        def bootup():
+            if generation == self.hb_generation and not CONFIG["silent"]:
+                self.transmit(0x700 + CONFIG["node"], [0x00])
+        # Sent from the machine's time domain (1 ms later), like every other frame of the stub.
+        self.after(1000, bootup)
+
+        def beat():
+            if generation != self.hb_generation or CONFIG["silent"] or CONFIG["heartbeat_ms"] <= 0:
+                return
+            self.heartbeats += 1
+            self.transmit(0x700 + CONFIG["node"], [0x05])   # operational
+            self.after(CONFIG["heartbeat_ms"] * 1000, beat)
+        self.after(CONFIG["heartbeat_ms"] * 1000, beat)
+
+    def feed(self, uart_name, period_ms, frame_bytes):
+        gen = self.feeders.get(uart_name, 0) + 1
+        self.feeders[uart_name] = gen
+        if period_ms <= 0:
+            return
+        uart = self.machine[uart_name]
+
+        def send():
+            if self.feeders.get(uart_name) != gen:
+                return
+            for b in frame_bytes:
+                uart.WriteChar(b)
+            self.after(period_ms * 1000, send)
+        self.after(period_ms * 1000, send)
+
+
+def le(value, size):
+    value &= 0xFFFFFFFF
+    return [(value >> (8 * i)) & 0xFF for i in range(size)]
+
+
+STUB = [None]
+
+
+def _machine():
+    return list(EmulationManager.Instance.CurrentEmulation.Machines)[0]
+
+
+def mc_tlm_stub_attach(hub_name):
+    emulation = EmulationManager.Instance.CurrentEmulation
+    machine = _machine()
+    hub = [h for h in emulation.ExternalsManager.GetExternalsOfType[CANHub]()][0]
+    stub = DriveStub(machine)
+    # The hub looks up the machine of every attached interface, so the stub is
+    # registered as a peripheral without a bus address.
+    machine.SystemBus.Register(stub, NullRegistrationPoint.Instance)
+    machine.SetLocalName(stub, "driveStub")
+    hub.AttachTo(stub)
+    stub.objects = {
+        (0x606C, 1): (4, 1234),          # actual velocity channel 1, drive units
+        (0x606C, 2): (4, -1234),         # channel 2
+        (0x6041, 0): (2, 0x0237),        # statusword: operation enabled
+        (0x603F, 0): (4, 0),             # fault code
+        (0x2026, 5): (2, 1),             # speed resolution; size is a guess (not in the vendor notes)
+    }
+    STUB[0] = stub
+    _calibrate_systick(machine)
+    stub.start_heartbeat()
+
+
+def _calibrate_systick(machine):
+    # Renode's STM32H7 RCC model does not keep the PLL and divider registers,
+    # so the HAL derives a SystemCoreClock that is not the 192 MHz of the
+    # board, and programs SysTick from it. To keep "1 tick = 1 ms of virtual
+    # time", the SysTick input frequency of the model follows every value the
+    # firmware writes to SystemCoreClock. Clock tree, baud rates and CAN bit
+    # timing are therefore NOT checked by these tests.
+    bus = machine.SystemBus
+    address = bus.GetSymbolAddress("SystemCoreClock")
+    nvic = machine["sysbus.nvic"]
+
+    def on_write(cpu, addr, width, value):
+        if value != 0:
+            nvic.Frequency = int(value)
+            print "TLM_STUB_CLOCK SystemCoreClock=%d (SysTick model frequency set to match)" % value
+    bus.AddWatchpointHook(address, SysbusAccessWidth.DoubleWord, Access.Write,
+                          BusHookDelegate(on_write))
+
+
+def mc_tlm_stub_set(key, value):
+    if key not in CONFIG:
+        raise Exception("unknown stub setting " + key)
+    CONFIG[key] = int(value)
+    if key in ("heartbeat_ms", "silent"):
+        STUB[0].start_heartbeat()
+
+
+def mc_tlm_stub_object(index, sub, size, value):
+    STUB[0].objects[(int(index), int(sub))] = (int(size), int(value))
+
+
+def mc_tlm_stub_tfluna(uart_name, period_ms, distance_cm, strength):
+    d, a, t = int(distance_cm), int(strength), 0x0900   # 0x0900 / 8 - 256 = 32 degC
+    body = [0x59, 0x59, d & 0xFF, d >> 8, a & 0xFF, a >> 8, t & 0xFF, t >> 8]
+    STUB[0].feed(uart_name, int(period_ms), body + [sum(body) & 0xFF])
+
+
+def mc_tlm_stub_mb7060(uart_name, period_ms, range_cm):
+    STUB[0].feed(uart_name, int(period_ms), [ord(c) for c in "R%03d\r" % int(range_cm)])
+
+
+def mc_tlm_stub_report():
+    s = STUB[0]
+    print 'TLM_STUB {"requests":%d,"responses":%d,"heartbeats":%d,"violations":%d}' % (
+        s.requests, s.responses, s.heartbeats, len(s.violations))
+    for v in s.violations[:20]:
+        print "TLM_STUB_VIOLATION " + v
