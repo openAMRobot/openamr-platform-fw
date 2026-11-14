@@ -93,3 +93,59 @@ def test_mutation_is_detected(path, vec):
     """Mutation check: a copy with one expected state changed must fail against the model."""
     errs, _ = model.run_vector(_mutate_one_state(vec), copy.deepcopy(SPEC))
     assert errs, f"{path.name}: changing an expected state was not detected"
+
+
+PERMIT_VECTORS = [(p, v) for p, v in VECTORS if v.get("kind") in ("permit_base", "permit_ctl017")]
+
+
+def _iter_steps(vec):
+    for case in vec.get("cases", [vec]):
+        yield from case["steps"]
+
+
+@pytest.mark.parametrize("path,vec", PERMIT_VECTORS, ids=[p.stem for p, _ in PERMIT_VECTORS])
+def test_permit_mutation_is_detected(path, vec):
+    """Flip one expected permit or lift state in a copy; the model must disagree."""
+    mutated = copy.deepcopy(vec)
+    for step in _iter_steps(mutated):
+        exp = step.get("expect") or {}
+        if "permit" in exp:
+            exp["permit"] = not exp["permit"]
+            break
+        if "lift" in exp:
+            exp["lift"] = "MOVING" if exp["lift"] == "IDLE" else "IDLE"
+            break
+    else:
+        raise AssertionError("vector has no permit or lift expectation")
+    errs, _ = model.run_vector(mutated)
+    assert errs
+
+
+def test_permit_parameters_are_named_and_marked():
+    for path, vec in PERMIT_VECTORS:
+        status = vec.get("param_status") or {}
+        assert set(vec["params"]) == set(status), path.name
+
+
+def test_permit_unconfigured_never_permits():
+    base = model.BasePermitModel({})
+    assert base.step(0.0, [])["permit"] is False
+    assert base.reason == "NOT_CONFIGURED"
+    ctl = model.CtlPermitModel({})
+    out = ctl.step(0.0, [{"event": "producer_session", "params": {"session": "S"}},
+                         {"event": "permit", "params": {"seq": 1, "value": True, "session": "S"}},
+                         {"event": "cmd", "params": {"kind": "MOVE_TO_STOP"}}])
+    assert out["lift"] == "IDLE" and out["reject"] == "NOT_CONFIGURED"
+
+
+def test_base_permit_reasons_all_exercised():
+    seen = set()
+    for _, vec in PERMIT_VECTORS:
+        if vec["kind"] != "permit_base":
+            continue
+        for step in _iter_steps(vec):
+            r = (step.get("expect") or {}).get("reason")
+            if r:
+                seen.add(r)
+    assert {"BASE_MOVING", "BASE_FEEDBACK_INVALID", "BASE_STOP_NOT_QUALIFIED", "ARM_STATUS_MISSING", "ARM_STATUS_STALE",
+            "ARM_POSE_UNSAFE", "ARM_MOTION_ACTIVE", "ARM_CONTROLLER_FAULT", "BASE_FAULT", "CTL017_LINK_LOST", "OK"} <= seen

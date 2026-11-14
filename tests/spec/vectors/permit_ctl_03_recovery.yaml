@@ -1,0 +1,180 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: permit_ctl_03_recovery
+title: Recovery needs a new command; a restart of either side needs a new permit
+covers:
+- '#20 2'
+- '#20 3'
+status: PROPOSAL
+kind: permit_ctl017
+params:
+  permit_timeout_s: 0.3
+param_status:
+  permit_timeout_s: TEST VALUE, TODO(Evans) I8 and CTL-017 object dictionary
+source_note: 'platform-fw #20 (owner proposals 11 to 13 Nov, platform lead reply 13 Nov), rev 5 5.5, R4, B9'
+wire: 'deliberately abstract: COB-ID, mapping, period, sequence width and session handshake are not decided (CONFLICT
+  C7)'
+cases:
+- id: no_resume
+  steps:
+  - t: 0.0
+    events:
+    - &id001
+      event: boot
+    - &id002
+      event: producer_session
+      params:
+        session: S1
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: MOVING
+      reject: null
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 2
+        value: false
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: PERMIT_WITHDRAWN
+  - t: 0.2
+    events:
+    - event: permit
+      params:
+        seq: 3
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+      target: null
+      permit_valid: true
+    note: 'permit restored: previous target is not resumed'
+  - t: 0.3
+    events:
+    - event: permit
+      params:
+        seq: 4
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: MOVING
+      reject: null
+      target: L1175
+    note: a new explicit command is required
+- id: producer_restart
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 100
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: MOVING
+      reject: null
+  - t: 0.1
+    events:
+    - event: producer_session
+      params:
+        session: S2
+    expect:
+      lift: IDLE
+      reject: null
+      stop_reason: NO_PERMIT
+      drive: STOP
+    note: 'base controller restarted: new session, old permit gone'
+  - t: 0.15
+    events:
+    - event: permit
+      params:
+        seq: 101
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      rejections:
+      - PERMIT_WRONG_SESSION
+  - t: 0.2
+    events:
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S2
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: MOVING
+      reject: null
+    note: sequence restarts in the new session
+- id: ctl017_restart
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: MOVING
+      reject: null
+  - t: 0.1
+    events:
+    - event: boot
+    - event: permit
+      params:
+        seq: 2
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1350
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+    note: 'own restart: no session until re-established'

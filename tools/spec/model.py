@@ -319,8 +319,12 @@ class BasePermitModel:
             src = self.arms if name == "arms" else (self.left if a["side"] == "left" else self.right)
             why = src.accept(a, now)
             if why:
+                # Fail closed (INTERPRETATION of platform-fw #20: invalid, stale, out-of-sequence
+                # or pre-reboot evidence is UNKNOWN): the source loses its sample and a wheel
+                # rejection restarts the stopped qualification.
                 self.rejections.append(f"{name}:{a.get('side', 'arms')}:{why}")
-                if why in ("INVALID",) and name == "wheel":
+                src.sample, src.rx = None, None
+                if name == "wheel":
                     self.stopped_since = None
         elif name == "base_fault":
             self.base_fault = bool(a.get("active", True))
@@ -430,7 +434,9 @@ class CtlPermitModel:
             elif name == "permit":
                 why = self.src.accept({**a, "valid": True}, t)
                 if why:
+                    # A rejected permit frame drops the permit (fail closed, INTERPRETATION).
                     rejections.append(f"PERMIT_{why}")
+                    self.src.sample, self.src.rx = None, None
             elif name == "cmd":
                 kind = a["kind"]
                 if kind == "STOP":
