@@ -12,6 +12,7 @@ hardware. Where the real behaviour is not recorded, the emulator says so with `T
 | `canopen_common.py` | NMT, heartbeat producer, expedited SDO server and a small SDO client |
 | `zlac8015d_emulator.py` | One ZLAC8015D V4.x node (node 1): 6040h, 6041h, 6060h, 60FFh, 606Ch, 6083h, 6084h, 605Ah, 6085h, 603Fh, 2000h, 2010h |
 | `ctl017_emulator.py` | CTL-017 lift node 0x10: motor model (18 mm/s), Hall counts, three stop sensors, travel timeout, head light and Getac outputs. Object dictionary from the #15 proposal (`ctl017_od_v1.py`), `TODO(Evans)` |
+| `tests/test_ctl017_od_drift.py` | fails when the emulator, `ctl017_od_v1.py` or the PDO layouts differ from the #15 object table snapshot in `tests/data/` |
 | `tests/` | pytest suite (50 tests, about 1 minute; includes the bench scripts) |
 
 ## Run the tests
@@ -62,6 +63,11 @@ ZLAC8015D:
 CTL-017 (follows the v1 proposal of openamr-upperbody-fw #15 and D1 to D20 of platform-fw #12;
 the dictionary is a proposal, `TODO(Evans)`):
 
+- Drift guard: `tests/test_ctl017_od_drift.py` compares every row of the #15 table (index,
+  sub-index, size, signedness, access, default) with the emulator's dictionary and the PDO
+  mapping objects with the frames it sends, and fails on any extra or missing object. The
+  table lives in `tests/data/ctl017_od_table.md`; replace it when the document changes.
+  `CTL017_OD_DOC=path/to/ctl017_object_dictionary.md` also compares the snapshot with the live file.
 - The object dictionary is generated into `ctl017_od_v1.py` by `gen_ctl017_od.py` from the
   table in the #15 dictionary document. When Evans adopts or changes it, regenerate and
   adjust the behaviour in `ctl017_emulator.py`. `tests/test_ctl017_od.py` pins the layout.
