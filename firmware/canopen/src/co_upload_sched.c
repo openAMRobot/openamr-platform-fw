@@ -11,26 +11,94 @@ oamr_co_upl_state_t oamr_co_upl_init(oamr_co_upl_t *s, const oamr_co_upl_config_
     s->state = OAMR_CO_UPL_NOT_CONFIGURED;
     if (cfg == 0 || !oamr_co_node_id_valid(cfg->node_id) || cfg->objects == 0 ||
         cfg->n_objects == 0u || cfg->n_objects > OAMR_CO_UPL_MAX_ENTRIES || cfg->timeout_us == 0u ||
-        !cfg->max_retries_set || cfg->send == 0) {
+        !cfg->max_retries_set || cfg->send == 0)
+    {
         return s->state;
+    }
+    if (cfg->max_retries > 0u &&
+        (cfg->late_guard_us == 0u || cfg->late_guard_us >= cfg->timeout_us))
+    {
+        return s->state; /* a retry needs an explicit guard shorter than the timeout */
     }
     s->cfg = *cfg;
     s->state = OAMR_CO_UPL_IDLE;
+    s->cycle_all_valid = true;
+    s->health.protocol_criterion_enabled = cfg->health_max_consecutive_protocol_errors != 0u;
+    s->health.cycle_criterion_enabled = cfg->health_max_no_valid_cycle_us != 0u;
+    s->health.state = (s->health.protocol_criterion_enabled || s->health.cycle_criterion_enabled)
+                          ? OAMR_CO_UPL_HEALTH_STARTING
+                          : OAMR_CO_UPL_HEALTH_DISABLED;
     return s->state;
 }
 
-static void advance(oamr_co_upl_t *s)
+static void health_trip(oamr_co_upl_t *s, uint8_t reason)
+{
+    oamr_co_upl_health_t *h = &s->health;
+    if (h->state == OAMR_CO_UPL_HEALTH_DISABLED)
+    {
+        return;
+    }
+    if (h->state != OAMR_CO_UPL_HEALTH_UNAVAILABLE)
+    {
+        h->state = OAMR_CO_UPL_HEALTH_UNAVAILABLE;
+        h->unavailable_events++;
+    }
+    h->reasons |= reason;
+}
+
+static void health_protocol_error(oamr_co_upl_t *s)
+{
+    oamr_co_upl_health_t *h = &s->health;
+    h->consecutive_protocol_errors++;
+    if (h->protocol_criterion_enabled &&
+        h->consecutive_protocol_errors >= s->cfg.health_max_consecutive_protocol_errors)
+    {
+        health_trip(s, OAMR_CO_UPL_HEALTH_R_PROTOCOL);
+    }
+}
+
+static void health_check_time(oamr_co_upl_t *s, uint64_t now_us)
+{
+    oamr_co_upl_health_t *h = &s->health;
+    if (!h->have_ref)
+    {
+        h->have_ref = true;
+        h->ref_us = now_us;
+        return;
+    }
+    if (h->cycle_criterion_enabled &&
+        (now_us < h->ref_us || now_us - h->ref_us >= s->cfg.health_max_no_valid_cycle_us))
+    {
+        health_trip(s, OAMR_CO_UPL_HEALTH_R_NO_CYCLE);
+    }
+}
+
+static void advance(oamr_co_upl_t *s, uint64_t now_us)
 {
     s->attempt = 0;
     s->state = OAMR_CO_UPL_IDLE;
     s->cur++;
-    if (s->cur >= s->cfg.n_objects) {
+    if (s->cur >= s->cfg.n_objects)
+    {
         s->cur = 0;
         s->cycles++;
+        if (s->cycle_all_valid)
+        {
+            oamr_co_upl_health_t *h = &s->health;
+            h->valid_cycles++;
+            h->have_ref = true;
+            h->ref_us = now_us;
+            if (h->state != OAMR_CO_UPL_HEALTH_DISABLED)
+            {
+                h->state = OAMR_CO_UPL_HEALTH_AVAILABLE;
+                h->reasons = 0u;
+            }
+        }
+        s->cycle_all_valid = true;
     }
 }
 
-static void fail_current(oamr_co_upl_t *s, oamr_co_sample_status_t why)
+static void fail_current(oamr_co_upl_t *s, oamr_co_sample_status_t why, uint64_t now_us)
 {
     oamr_co_sample_t *smp = &s->samples[s->cur];
     smp->status = why;
@@ -38,7 +106,8 @@ static void fail_current(oamr_co_upl_t *s, oamr_co_sample_status_t why)
     smp->size = 0;
     smp->size_indicated = false;
     s->counters[s->cur].failed++;
-    advance(s);
+    s->cycle_all_valid = false;
+    advance(s, now_us);
 }
 
 static void send_request(oamr_co_upl_t *s, uint64_t now_us)
@@ -47,11 +116,15 @@ static void send_request(oamr_co_upl_t *s, uint64_t now_us)
     oamr_co_frame_t f;
     (void)oamr_co_sdo_encode_upload_request(s->cfg.node_id, o->index, o->subindex, &f);
     s->attempt++;
-    if (!s->cfg.send(s->cfg.send_ctx, &f)) {
+    if (!s->cfg.send(s->cfg.send_ctx, &f))
+    {
         s->counters[s->cur].tx_failures++;
-        if (s->attempt > s->cfg.max_retries) {
-            fail_current(s, OAMR_CO_SAMPLE_TX_FAILED);
-        } else {
+        if (s->attempt > s->cfg.max_retries)
+        {
+            fail_current(s, OAMR_CO_SAMPLE_TX_FAILED, now_us);
+        }
+        else
+        {
             s->counters[s->cur].retries++;
             s->state = OAMR_CO_UPL_IDLE; /* try again on the next tick */
         }
@@ -63,19 +136,26 @@ static void send_request(oamr_co_upl_t *s, uint64_t now_us)
 
 void oamr_co_upl_tick(oamr_co_upl_t *s, uint64_t now_us)
 {
-    switch (s->state) {
+    switch (s->state)
+    {
     case OAMR_CO_UPL_NOT_CONFIGURED:
         return;
     case OAMR_CO_UPL_IDLE:
+        health_check_time(s, now_us);
         send_request(s, now_us);
         return;
     case OAMR_CO_UPL_BUSY:
+        health_check_time(s, now_us);
         /* A clock that went backwards counts as a timeout: never wait forever. */
-        if (now_us < s->sent_us || now_us - s->sent_us >= s->cfg.timeout_us) {
+        if (now_us < s->sent_us || now_us - s->sent_us >= s->cfg.timeout_us)
+        {
             s->counters[s->cur].timeouts++;
-            if (s->attempt > s->cfg.max_retries) {
-                fail_current(s, OAMR_CO_SAMPLE_TIMEOUT);
-            } else {
+            if (s->attempt > s->cfg.max_retries)
+            {
+                fail_current(s, OAMR_CO_SAMPLE_TIMEOUT, now_us);
+            }
+            else
+            {
                 s->counters[s->cur].retries++;
                 send_request(s, now_us);
             }
@@ -89,19 +169,31 @@ void oamr_co_upl_tick(oamr_co_upl_t *s, uint64_t now_us)
 bool oamr_co_upl_on_frame(oamr_co_upl_t *s, const oamr_co_frame_t *f, uint64_t now_us)
 {
     if (s->state == OAMR_CO_UPL_NOT_CONFIGURED || f == 0 || f->extended ||
-        f->id != OAMR_CO_COB_SDO_TX_BASE + s->cfg.node_id) {
+        f->id != OAMR_CO_COB_SDO_TX_BASE + s->cfg.node_id)
+    {
         return false;
     }
-    if (s->state != OAMR_CO_UPL_BUSY) {
+    if (s->state != OAMR_CO_UPL_BUSY)
+    {
         s->unsolicited++; /* late answer after a timeout, or a duplicate */
         return true;
     }
     const oamr_co_object_t *o = &s->cfg.objects[s->cur];
     oamr_co_sdo_response_t r;
-    const oamr_co_sdo_rx_t rx = oamr_co_sdo_decode_upload_response(f, s->cfg.node_id, o->index,
-                                                                   o->subindex, &r);
+    const oamr_co_sdo_rx_t rx =
+        oamr_co_sdo_decode_upload_response(f, s->cfg.node_id, o->index, o->subindex, &r);
     oamr_co_sample_t *smp = &s->samples[s->cur];
-    switch (rx) {
+    if ((rx == OAMR_CO_SDO_RX_OK || rx == OAMR_CO_SDO_RX_ABORT) && s->attempt > 1u &&
+        (now_us < s->sent_us || now_us - s->sent_us < s->cfg.late_guard_us))
+    {
+        /* Inside the guard after a retry: most likely the answer to the
+         * timed-out request. Counted, never a sample; keep waiting. */
+        s->counters[s->cur].late++;
+        s->late++;
+        return true;
+    }
+    switch (rx)
+    {
     case OAMR_CO_SDO_RX_OK:
         smp->status = OAMR_CO_SAMPLE_VALID;
         smp->value = r.value;
@@ -110,12 +202,13 @@ bool oamr_co_upl_on_frame(oamr_co_upl_t *s, const oamr_co_frame_t *f, uint64_t n
         smp->sample_us = now_us;
         smp->seq++;
         s->counters[s->cur].ok++;
-        advance(s);
+        s->health.consecutive_protocol_errors = 0u;
+        advance(s, now_us);
         return true;
     case OAMR_CO_SDO_RX_ABORT:
         smp->abort_code = r.abort_code;
         s->counters[s->cur].aborts++;
-        fail_current(s, OAMR_CO_SAMPLE_ABORTED);
+        fail_current(s, OAMR_CO_SAMPLE_ABORTED, now_us);
         return true;
     case OAMR_CO_SDO_RX_WRONG_OBJECT:
         s->wrong_object++; /* keep waiting for our own answer */
@@ -124,7 +217,8 @@ bool oamr_co_upl_on_frame(oamr_co_upl_t *s, const oamr_co_frame_t *f, uint64_t n
     case OAMR_CO_SDO_RX_SEGMENTED:
     case OAMR_CO_SDO_RX_UNEXPECTED_CS:
         s->counters[s->cur].protocol_errors++;
-        fail_current(s, OAMR_CO_SAMPLE_PROTOCOL);
+        health_protocol_error(s);
+        fail_current(s, OAMR_CO_SAMPLE_PROTOCOL, now_us);
         return true;
     case OAMR_CO_SDO_RX_NOT_FOR_US:
     default:
@@ -134,7 +228,8 @@ bool oamr_co_upl_on_frame(oamr_co_upl_t *s, const oamr_co_frame_t *f, uint64_t n
 
 const oamr_co_sample_t *oamr_co_upl_sample(const oamr_co_upl_t *s, uint8_t i)
 {
-    if (s->state == OAMR_CO_UPL_NOT_CONFIGURED || i >= s->cfg.n_objects) {
+    if (s->state == OAMR_CO_UPL_NOT_CONFIGURED || i >= s->cfg.n_objects)
+    {
         return 0;
     }
     return &s->samples[i];
@@ -142,8 +237,31 @@ const oamr_co_sample_t *oamr_co_upl_sample(const oamr_co_upl_t *s, uint8_t i)
 
 const oamr_co_upl_counters_t *oamr_co_upl_counters(const oamr_co_upl_t *s, uint8_t i)
 {
-    if (s->state == OAMR_CO_UPL_NOT_CONFIGURED || i >= s->cfg.n_objects) {
+    if (s->state == OAMR_CO_UPL_NOT_CONFIGURED || i >= s->cfg.n_objects)
+    {
         return 0;
     }
     return &s->counters[i];
+}
+
+const oamr_co_upl_health_t *oamr_co_upl_health(const oamr_co_upl_t *s)
+{
+    return &s->health;
+}
+
+const char *oamr_co_upl_health_name(oamr_co_upl_health_state_t st)
+{
+    switch (st)
+    {
+    case OAMR_CO_UPL_HEALTH_DISABLED:
+        return "DISABLED";
+    case OAMR_CO_UPL_HEALTH_STARTING:
+        return "STARTING";
+    case OAMR_CO_UPL_HEALTH_AVAILABLE:
+        return "AVAILABLE";
+    case OAMR_CO_UPL_HEALTH_UNAVAILABLE:
+        return "UNAVAILABLE";
+    default:
+        return "unknown";
+    }
 }

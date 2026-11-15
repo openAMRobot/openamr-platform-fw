@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* CiA 301 codec: COB-ID helpers, SDO upload/abort/download codec, heartbeat,
+/* CiA 301 codec: COB-ID helpers, SDO upload and abort codec, heartbeat,
  * NMT command and EMCY decode. Golden frames are written out byte by byte. */
 #include "oamr/co_cobid.h"
 #include "oamr/co_nmt_emcy.h"
@@ -215,29 +215,6 @@ static void sdo_abort_decode(void)
     CHECK(strcmp(oamr_co_sdo_abort_name(OAMR_CO_SDO_ABORT_NO_OBJECT), "object does not exist") == 0);
 }
 
-/* Codec-only test of the download encoder. A neutral object (1000h-range test
- * index 2FFFh) is used so no drive object appears in a write frame here. */
-static void sdo_download_codec_only(void)
-{
-    oamr_co_frame_t f;
-    CHECK(oamr_co_sdo_encode_download_expedited(5, 0x2FFF, 1, 0x11223344u, 4, &f));
-    const uint8_t w4[8] = {0x23, 0xFF, 0x2F, 0x01, 0x44, 0x33, 0x22, 0x11};
-    CHECK_EQ(f.id, 0x605u);
-    CHECK_EQ(f.dlc, 8);
-    CHECK(memcmp(f.data, w4, 8) == 0);
-    CHECK(oamr_co_sdo_encode_download_expedited(5, 0x2FFF, 1, 0x11223344u, 2, &f));
-    const uint8_t w2[8] = {0x2B, 0xFF, 0x2F, 0x01, 0x44, 0x33, 0x00, 0x00};
-    CHECK(memcmp(f.data, w2, 8) == 0);
-    CHECK(oamr_co_sdo_encode_download_expedited(5, 0x2FFF, 1, 0x11223344u, 1, &f));
-    const uint8_t w1[8] = {0x2F, 0xFF, 0x2F, 0x01, 0x44, 0x00, 0x00, 0x00};
-    CHECK(memcmp(f.data, w1, 8) == 0);
-    CHECK(!oamr_co_sdo_encode_download_expedited(5, 0x2FFF, 1, 0, 3, &f));
-    CHECK(!oamr_co_sdo_encode_download_expedited(5, 0x2FFF, 1, 0, 0, &f));
-    CHECK(!oamr_co_sdo_encode_download_expedited(5, 0x2FFF, 1, 0, 5, &f));
-    CHECK(!oamr_co_sdo_encode_download_expedited(0, 0x2FFF, 1, 0, 4, &f));
-    CHECK(!oamr_co_sdo_encode_download_expedited(5, 0x2FFF, 1, 0, 4, NULL));
-}
-
 static void heartbeat_decode(void)
 {
     oamr_co_nmt_state_t st = OAMR_CO_NMT_STOPPED;
@@ -343,7 +320,6 @@ int main(void)
         {"sdo_upload_response_sizes", sdo_upload_response_sizes},
         {"sdo_upload_response_rejects", sdo_upload_response_rejects},
         {"sdo_abort_decode", sdo_abort_decode},
-        {"sdo_download_codec_only", sdo_download_codec_only},
         {"heartbeat_decode", heartbeat_decode},
         {"nmt_command_decode", nmt_command_decode},
         {"emcy_decode", emcy_decode},

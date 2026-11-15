@@ -13,7 +13,8 @@
 #include <stdint.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #define OAMR_CO_NODE_ID_MIN 1u
@@ -21,8 +22,8 @@ extern "C" {
 
 #define OAMR_CO_COB_NMT 0x000u
 #define OAMR_CO_COB_SYNC 0x080u
-#define OAMR_CO_COB_EMCY_BASE 0x080u      /* + node id */
-#define OAMR_CO_COB_TPDO1_BASE 0x180u     /* + node id, device to client */
+#define OAMR_CO_COB_EMCY_BASE 0x080u  /* + node id */
+#define OAMR_CO_COB_TPDO1_BASE 0x180u /* + node id, device to client */
 #define OAMR_CO_COB_RPDO1_BASE 0x200u
 #define OAMR_CO_COB_TPDO2_BASE 0x280u
 #define OAMR_CO_COB_RPDO2_BASE 0x300u
@@ -34,40 +35,41 @@ extern "C" {
 #define OAMR_CO_COB_SDO_RX_BASE 0x600u    /* client to server (device), + node id */
 #define OAMR_CO_COB_HEARTBEAT_BASE 0x700u /* + node id */
 
-typedef enum {
-    OAMR_CO_FN_INVALID = 0, /* extended id, out of range, or node id 0 where one is needed */
-    OAMR_CO_FN_NMT,
-    OAMR_CO_FN_SYNC,
-    OAMR_CO_FN_EMCY,
-    OAMR_CO_FN_TPDO1,
-    OAMR_CO_FN_RPDO1,
-    OAMR_CO_FN_TPDO2,
-    OAMR_CO_FN_RPDO2,
-    OAMR_CO_FN_TPDO3,
-    OAMR_CO_FN_RPDO3,
-    OAMR_CO_FN_TPDO4,
-    OAMR_CO_FN_RPDO4,
-    OAMR_CO_FN_SDO_TX,     /* response from a server */
-    OAMR_CO_FN_SDO_RX,     /* request to a server */
-    OAMR_CO_FN_HEARTBEAT,
-    OAMR_CO_FN_OTHER       /* valid 11-bit id outside the predefined set (for example LSS, TIME) */
-} oamr_co_function_t;
+    typedef enum
+    {
+        OAMR_CO_FN_INVALID = 0, /* extended id, out of range, or node id 0 where one is needed */
+        OAMR_CO_FN_NMT,
+        OAMR_CO_FN_SYNC,
+        OAMR_CO_FN_EMCY,
+        OAMR_CO_FN_TPDO1,
+        OAMR_CO_FN_RPDO1,
+        OAMR_CO_FN_TPDO2,
+        OAMR_CO_FN_RPDO2,
+        OAMR_CO_FN_TPDO3,
+        OAMR_CO_FN_RPDO3,
+        OAMR_CO_FN_TPDO4,
+        OAMR_CO_FN_RPDO4,
+        OAMR_CO_FN_SDO_TX, /* response from a server */
+        OAMR_CO_FN_SDO_RX, /* request to a server */
+        OAMR_CO_FN_HEARTBEAT,
+        OAMR_CO_FN_OTHER /* valid 11-bit id outside the predefined set (for example LSS, TIME) */
+    } oamr_co_function_t;
 
-static inline bool oamr_co_node_id_valid(uint8_t node_id)
-{
-    return node_id >= OAMR_CO_NODE_ID_MIN && node_id <= OAMR_CO_NODE_ID_MAX;
-}
+    static inline bool oamr_co_node_id_valid(uint8_t node_id)
+    {
+        return node_id >= OAMR_CO_NODE_ID_MIN && node_id <= OAMR_CO_NODE_ID_MAX;
+    }
 
-/* COB-ID for base + node id; returns 0 for an invalid node id (0 is never a
- * valid node-addressed COB-ID). */
-static inline uint32_t oamr_co_cobid(uint32_t base, uint8_t node_id)
-{
-    return oamr_co_node_id_valid(node_id) ? base + node_id : 0u;
-}
+    /* COB-ID for base + node id; returns 0 for an invalid node id (0 is never a
+     * valid node-addressed COB-ID). */
+    static inline uint32_t oamr_co_cobid(uint32_t base, uint8_t node_id)
+    {
+        return oamr_co_node_id_valid(node_id) ? base + node_id : 0u;
+    }
 
-/* Classify an identifier against the predefined connection set. node_id is
- * set to the node part for node-addressed functions, else to 0. */
-oamr_co_function_t oamr_co_classify(uint32_t id, bool extended, uint8_t *node_id);
+    /* Classify an identifier against the predefined connection set. node_id is
+     * set to the node part for node-addressed functions, else to 0. */
+    oamr_co_function_t oamr_co_classify(uint32_t id, bool extended, uint8_t *node_id);
 
 #ifdef __cplusplus
 }
