@@ -109,3 +109,42 @@ jobs:
             cat build/arm.log; exit 1
           fi
           grep "SIMULATION ONLY: tests/sim_reference refuses" build/arm.log
+
+  teensy-gate-a:
+    name: Teensy 4.0 Gate A build with the simref_ post-link guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ROS_DISTRO: jazzy
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: PlatformIO and the pinned linorobot2_hardware base (aaf9d59, NOTICE.md)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-venv cmake git
+          python3 -m venv "$RUNNER_TEMP/pio"
+          "$RUNNER_TEMP/pio/bin/pip" install platformio==6.1.16
+          git clone https://github.com/linorobot/linorobot2_hardware.git "$RUNNER_TEMP/lr2"
+          git -C "$RUNNER_TEMP/lr2" checkout aaf9d59
+          OV=boards/teensy_4_0/linorobot2_overlay
+          LR=$RUNNER_TEMP/lr2
+          cp "$OV/config/lino_base_config.h" "$LR/config/"
+          cp "$OV/firmware/platformio.ini" "$OV/firmware/simref_symbol_guard_pio.py" "$LR/firmware/"
+          cp "$OV/src/firmware.ino" "$LR/firmware/src/"
+          cp "$OV"/lib/pid/* "$LR/firmware/lib/pid/"
+          cp "$OV"/lib/encoder/* "$LR/firmware/lib/encoder/"
+      - name: teensy40 build (guard must pass)
+        working-directory: ${{ runner.temp }}/lr2/firmware
+        run: |
+          "$RUNNER_TEMP/pio/bin/pio" run -e teensy40 2>&1 | tee "$RUNNER_TEMP/teensy.log"
+          test "${PIPESTATUS[0]}" -eq 0
+          grep "simref symbol guard: .*no simref_ symbol" "$RUNNER_TEMP/teensy.log"
+      - name: Negative test, a simref_ symbol in the teensy40 ELF must fail the build
+        working-directory: ${{ runner.temp }}/lr2/firmware
+        run: |
+          if PLATFORMIO_BUILD_FLAGS="-Wl,--defsym=simref_poison_marker=0" "$RUNNER_TEMP/pio/bin/pio" run -e teensy40 > "$RUNNER_TEMP/poison.log" 2>&1; then
+            tail -40 "$RUNNER_TEMP/poison.log"
+            echo "::error::the poisoned Teensy build passed; the guard did not fire"
+            exit 1
+          fi
+          grep "simulation-reference symbols: simref_poison_marker" "$RUNNER_TEMP/poison.log"
