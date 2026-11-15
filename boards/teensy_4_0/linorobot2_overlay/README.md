@@ -47,6 +47,10 @@ internals already cover each planned module, so they can be split out one at a t
   library, MIT.
 - **`firmware/platformio.ini`** — pins `teensy@5.1.0` and every library to the deployed build;
   see [build & flash](../../../docs/flashing/build-and-flash.md).
+- **`firmware/simref_symbol_guard_pio.py`** (15 Nov 2026) — post-link guard run by every
+  PlatformIO environment through `extra_scripts`: the build fails if a symbol of the
+  simulation-only reference (prefix `simref_`) is in the ELF. It only reads the ELF; copy it
+  next to `platformio.ini`.
 - **`src/firmware.ino`** — the 50 Hz control loop (upstream) plus:
   - a **velocity feedforward + PID** controller (the feedforward carries the holding PWM so the
     closed-loop response is speed-independent), a **small-window velocity estimator** and an
