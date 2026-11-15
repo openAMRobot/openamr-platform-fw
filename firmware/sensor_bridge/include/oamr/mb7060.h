@@ -99,6 +99,10 @@ extern "C"
     void oamr_mb_arm(oamr_mb_t *p);
     /* The reading timed out: stop accepting a frame for that trigger. */
     void oamr_mb_disarm(oamr_mb_t *p);
+    /* Bytes were lost (UART error or receive buffer overflow): drop the partial
+     * frame (counted in bytes_discarded) and hunt for the next 'R'. The armed
+     * state and the counters are kept. */
+    void oamr_mb_flush(oamr_mb_t *p);
     oamr_mb_push_t oamr_mb_push(oamr_mb_t *p, uint8_t byte, oamr_mb_sample_t *out);
 
     /* ---- Trigger sequencer: pure decision helper, never touches a pin ---- */

@@ -29,6 +29,16 @@ void oamr_mb_disarm(oamr_mb_t *p)
     p->armed = false;
 }
 
+void oamr_mb_flush(oamr_mb_t *p)
+{
+    if (p->in_frame)
+    {
+        p->counters.bytes_discarded += p->len;
+    }
+    p->in_frame = false;
+    p->len = 0u;
+}
+
 static bool is_digit(uint8_t c)
 {
     return c >= 0x30u && c <= 0x39u;

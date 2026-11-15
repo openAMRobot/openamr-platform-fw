@@ -92,6 +92,28 @@ static void restart_mid_frame(void)
     CHECK(p.counters.malformed == 1u);
 }
 
+static void flush_drops_partial_frame(void)
+{
+    /* After bytes were lost mid-frame, "R1" + flush + "23\r" must not
+     * become R123: the tail is discarded until the next 'R'. */
+    oamr_mb_t p;
+    oamr_mb_init(&p);
+    oamr_mb_arm(&p);
+    oamr_mb_sample_t s;
+    int n = 0;
+    feed_str(&p, "R1", &s, &n);
+    oamr_mb_flush(&p);
+    CHECK(p.counters.bytes_discarded == 2u);
+    feed_str(&p, "23\r", &s, &n);
+    CHECK(n == 0);
+    CHECK(p.armed); /* still waiting for the reading of this trigger */
+    feed_str(&p, "R456\r", &s, &n);
+    CHECK(n == 1 && s.range_cm == 456u);
+    CHECK(p.counters.malformed == 0u);
+    oamr_mb_flush(&p); /* outside a frame: nothing to count */
+    CHECK(p.counters.bytes_discarded == 5u);
+}
+
 static void one_sample_per_trigger(void)
 {
     oamr_mb_t p;
@@ -235,6 +257,7 @@ int main(void)
     RUN(golden_and_classes);
     RUN(malformed);
     RUN(restart_mid_frame);
+    RUN(flush_drops_partial_frame);
     RUN(one_sample_per_trigger);
     RUN(fuzz);
     RUN(seq_not_configured);
