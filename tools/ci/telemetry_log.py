@@ -4,7 +4,8 @@
 The image prints one JSON object per line on USART3: a "boot" banner after every reset, a "st"
 status line every report period and, every SLOW_EVERY periods directly after that period's
 status line, a "sl" slow line with the rarely changing fields, in two parts that alternate
-("cfg" at seq 0, 10, 20, ..., "diag" at seq 5, 15, ...). This module turns a captured log
+("cfg" at seq 0, 10, 20, ..., "diag" at seq 5, 15, ...), and in every other period, directly
+after its status line, an "ax" line with the CTL-017 lift (CAN3) and the Daly BMS (CAN2). This module turns a captured log
 into records and checks the properties a host can rely on without knowing what the drive did:
 
   - sequence continuity: after every banner the sequence starts at 0 and rises by exactly 1,
@@ -17,7 +18,10 @@ into records and checks the properties a host can rely on without knowing what t
   - a value reported valid has a numeric age and a numeric raw;
   - line caps: a status line fits in 60 % and a slow line in 35 % of the characters 115200 baud
     carries in one report period (691 and 403 characters with the newline);
-  - a slow line follows the status line of every SLOW_EVERY-th period, with its boot id and seq.
+  - a slow line follows the status line of every SLOW_EVERY-th period, with its boot id and seq;
+    an "ax" line follows every other status line, with its boot id and seq, capped like a slow line;
+  - lift and battery: a position, state or flag never received is "unknown"; battery values
+    appear only when the decoder is usable, otherwise "bms" is "locked", "disabled" or "unknown".
 
 Usage: telemetry_log.py CONSOLE_LOG [--period-us 100000] [--tolerance-us 2000]
 Exit 0 when no problem is found, 1 otherwise. Used by tools/ci/renode_telemetry.py and by
@@ -53,7 +57,7 @@ def parse(text):
         except ValueError:
             problems.append("line %d: not JSON: %.60s" % (number, line))
             continue
-        if not isinstance(obj, dict) or obj.get("t") not in ("boot", "st", "sl", "err", "fatal"):
+        if not isinstance(obj, dict) or obj.get("t") not in ("boot", "st", "sl", "ax", "err", "fatal"):
             problems.append("line %d: unexpected record type" % number)
             continue
         obj["_line"] = number
@@ -68,7 +72,7 @@ def boots(records):
     for r in records:
         if r["t"] == "boot":
             runs.append((r, []))
-        elif r["t"] == "st" or (r["t"] == "err" and r.get("of") != "sl"):
+        elif r["t"] == "st" or (r["t"] == "err" and r.get("of") not in ("sl", "ax")):
             if not runs:
                 runs.append((None, []))
             runs[-1][1].append(r)
@@ -77,6 +81,10 @@ def boots(records):
 
 def slow_lines(records, part=None):
     return [r for r in records if r["t"] == "sl" and (part is None or r.get("part") == part)]
+
+
+def ax_lines(records):
+    return [r for r in records if r["t"] == "ax"]
 
 
 def slow_part(seq):
@@ -104,13 +112,24 @@ def _is_count(v):
 
 
 def check_slow_placement(records):
-    """Every SLOW_EVERY-th status line is followed by a slow line with its boot id and seq, and a
-    slow line appears nowhere else."""
+    """Every SLOW_EVERY-th status line is followed by a slow line with its boot id and seq, every
+    other status line by an "ax" line with its boot id and seq, and neither appears elsewhere."""
     problems = []
     last_st = None
     owed = None   # status line that still waits for its slow line
+    owed_ax = None   # status line that still waits for its ax line
     for r in records:
         where = "line %d" % r["_line"]
+        if r["t"] in ("boot", "st") or (r["t"] == "err" and r.get("of") not in ("sl", "ax")):
+            if owed_ax is not None:
+                problems.append("line %d: no ax line after seq %r" % (owed_ax["_line"], owed_ax.get("seq")))
+            owed_ax = None
+        if r["t"] == "ax" or (r["t"] == "err" and r.get("of") == "ax"):
+            if last_st is None or owed_ax is not last_st or r.get("seq") != last_st.get("seq") or r.get("boot") != last_st.get("boot"):
+                problems.append("%s: ax line seq %r boot %r does not follow a status line of a period without a slow line"
+                                % (where, r.get("seq"), r.get("boot")))
+            owed_ax = None
+            continue
         if r["t"] == "boot":
             if owed is not None:
                 problems.append("line %d: no slow line after seq %r" % (owed["_line"], owed.get("seq")))
@@ -120,6 +139,7 @@ def check_slow_placement(records):
                 problems.append("line %d: no slow line after seq %r" % (owed["_line"], owed.get("seq")))
             last_st = r
             owed = r if _is_count(r.get("seq")) and r["seq"] % SLOW_EVERY == 0 else None
+            owed_ax = r if _is_count(r.get("seq")) and r["seq"] % SLOW_EVERY != 0 else None
         elif r["t"] == "sl" or (r["t"] == "err" and r.get("of") == "sl"):
             if last_st is None or owed is not last_st or r.get("seq") != last_st.get("seq") or r.get("boot") != last_st.get("boot"):
                 problems.append("%s: slow line seq %r boot %r does not follow a status line of a slow period"
@@ -133,7 +153,7 @@ def check_slow_placement(records):
 def check_lengths(records):
     problems = []
     for r in records:
-        cap = {"st": STATUS_LINE_MAX, "sl": SLOW_LINE_MAX}.get(r["t"])
+        cap = {"st": STATUS_LINE_MAX, "sl": SLOW_LINE_MAX, "ax": SLOW_LINE_MAX}.get(r["t"])
         if cap is not None and r["_len"] > cap:
             problems.append("line %d: %s line of %d characters, cap %d" % (r["_line"], r["t"], r["_len"], cap))
     return problems
@@ -240,6 +260,27 @@ def check_ages(records):
         for name, state in s["rx"].items():
             if state not in ("stopped", "failed"):
                 problems.append("%s: port %s listed with state %r" % (where, name, state))
+    for a in ax_lines(records):
+        where = "line %d" % a["_line"]
+        lift = a["lift"]
+        hb_age = _check_age(where, "lift hb", lift["hb_age_us"], problems)
+        if lift["hb"] == "alive" and not hb_age:
+            problems.append("%s: lift heartbeat alive without an age" % where)
+        if lift["hb"] in ("disabled", "waiting") and hb_age:
+            problems.append("%s: lift heartbeat %s but an age is given" % (where, lift["hb"]))
+        seen = _check_age(where, "lift", lift["age_us"], problems)
+        if lift["pos"] != UNKNOWN and not _is_count(lift["pos"]):
+            problems.append("%s: lift position %r is neither a count nor \"unknown\"" % (where, lift["pos"]))
+        if not seen and (lift["pos"] != UNKNOWN or lift["st"] != UNKNOWN or lift["fl"] != UNKNOWN):
+            problems.append("%s: lift status never received but reports %r %r %r" % (where, lift["st"], lift["pos"], lift["fl"]))
+        if (lift["vel"] == UNKNOWN) != (lift["ma"] == UNKNOWN) or (lift["vel"] == UNKNOWN) != (lift["flt"] == UNKNOWN):
+            problems.append("%s: lift TPDO2 values partly unknown: %r %r %r" % (where, lift["vel"], lift["ma"], lift["flt"]))
+        bms = a["bms"]
+        if isinstance(bms, dict):
+            if sorted(bms) != ["age_us", "da", "mv", "soc_pm"] or not _check_age(where, "bms", bms["age_us"], problems):
+                problems.append("%s: battery values %r" % (where, bms))
+        elif bms not in ("locked", "disabled", UNKNOWN):
+            problems.append("%s: bms is %r; a value that is not usable is never printed" % (where, bms))
     return problems
 
 
@@ -282,7 +323,9 @@ def main(argv=None):
     n_boot = sum(1 for r in records if r["t"] == "boot")
     n_status = sum(1 for r in records if r["t"] == "st")
     n_slow = sum(1 for r in records if r["t"] == "sl")
-    print("%d boot banner(s), %d status line(s), %d slow line(s), %d problem(s)" % (n_boot, n_status, n_slow, len(problems)))
+    n_ax = sum(1 for r in records if r["t"] == "ax")
+    print("%d boot banner(s), %d status line(s), %d slow line(s), %d ax line(s), %d problem(s)"
+          % (n_boot, n_status, n_slow, n_ax, len(problems)))
     for problem in problems:
         print("  " + problem)
     if n_status == 0:

@@ -23,11 +23,18 @@
             "displayName": "Debug with TLM_TEST_PARAMS (unapproved test values, Renode only)",
             "inherits": "default",
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "TLM_TEST_PARAMS": "ON" }
+        },
+        {
+            "name": "TelemetryUrosSerialSimBench",
+            "displayName": "RenodeTest plus micro-ROS over USART3 serial: simulation and bench only (robot target: UDP over Ethernet)",
+            "inherits": "default",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "TLM_TEST_PARAMS": "ON", "TLM_UROS": "ON" }
         }
     ],
     "buildPresets": [
         { "name": "Debug", "configurePreset": "Debug" },
         { "name": "Release", "configurePreset": "Release" },
-        { "name": "RenodeTest", "configurePreset": "RenodeTest" }
+        { "name": "RenodeTest", "configurePreset": "RenodeTest" },
+        { "name": "TelemetryUrosSerialSimBench", "configurePreset": "TelemetryUrosSerialSimBench" }
     ]
 }

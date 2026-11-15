@@ -43,6 +43,14 @@ void tlm_can1_snapshot(tlm_drive_status_t *out, uint64_t now_us);
 void tlm_can1_irq_begin(void);
 void tlm_can1_irq_end(void);
 
+/* ---- CAN2 and CAN3 (tlm_can_aux.c), receive only ---- */
+void tlm_can_aux_init(void);
+void tlm_can_aux_rx_task(void *arg);
+void tlm_can_aux_snapshot(tlm_aux_status_t *out, uint64_t now_us);
+/* From HAL_FDCAN_RxFifo0Callback (tlm_can1.c) for FDCAN2 and FDCAN3. Returns
+ * the FreeRTOS "higher priority task woken" flag. */
+long tlm_can_aux_rx_isr(void *hfdcan, uint32_t rx_fifo0_its);
+
 /* ---- sensors (tlm_sensors.c) ---- */
 void tlm_sensors_init(void);
 void tlm_sensors_task(void *arg);

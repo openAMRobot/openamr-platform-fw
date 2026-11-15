@@ -84,8 +84,27 @@ static tlm_status_t heavy(uint32_t counter_value)
         ss->rx_failed[i] = true;
     }
     ss->ring_overflows = ss->ring_lost_bytes = counter_value;
-    static const char *const tasks[TLM_N_TASKS] = {"can1_tick", "can1_rx", "sensors", "reporter",
-                                                   "idle"};
+    tlm_aux_status_t *a = &s.aux;
+    a->can2_started = a->can3_started = true;
+    a->lift_hb = "waiting";
+    a->lift_hb_age_us.known = true;
+    a->lift_hb_age_us.v = 99999999999ull;
+    a->lift_nmt = "pre_operational";
+    a->lift_state = "STOPPING";
+    a->lift_pos.known = true;
+    a->lift_pos.v = 65534u;
+    a->lift_age_us.known = true;
+    a->lift_age_us.v = 99999999999ull;
+    a->lift_flags_known = a->lift_s2_known = true;
+    a->lift_flags = 0xFFu;
+    a->lift_vel = -32768;
+    a->lift_ma = 65535u;
+    a->lift_faults = 0x1FFu;
+    a->bms = "locked";
+    a->c2_rx = a->c3_rx = a->lift_hb_n = counter_value;
+    a->bms_dec = a->bms_foreign = a->bms_bad = a->bms_unknown = 4294967295u;
+    static const char *const tasks[TLM_N_TASKS] = {"can1_tick", "can1_rx", "can_aux", "sensors",
+                                                   "reporter", "idle"};
     for (unsigned i = 0; i < TLM_N_TASKS; i++)
     {
         s.stacks.name[i] = tasks[i];
@@ -101,6 +120,15 @@ static size_t format_len(bool slow, tlm_slow_part_t part, const tlm_status_t *s,
     memset(g_buf, 0, sizeof(g_buf));
     tlm_buf_init(&b, g_buf, cap < sizeof(g_buf) ? cap : sizeof(g_buf) - 1u);
     *ok = slow ? tlm_format_slow(s, part, &b) : tlm_format_status(s, &b);
+    return b.len;
+}
+
+static size_t format_aux_len(const tlm_status_t *s, bool *ok)
+{
+    tlm_buf_t b;
+    memset(g_buf, 0, sizeof(g_buf));
+    tlm_buf_init(&b, g_buf, TLM_SLOW_LINE_MAX);
+    *ok = tlm_format_aux(s, &b);
     return b.len;
 }
 
@@ -160,6 +188,11 @@ static void heavy_lines_fit_their_caps(void)
     const size_t diag = format_len(true, TLM_SLOW_DIAG, &s, TLM_SLOW_LINE_MAX, &ok);
     CHECK(ok && diag <= TLM_SLOW_LINE_MAX);
     printf("  slow diag line: %zu characters (cap %u)\n", diag, (unsigned)TLM_SLOW_LINE_MAX);
+    /* ax line with every counter at its maximum and a silent lift for a day. */
+    s.aux.bms_dec = s.aux.bms_foreign = s.aux.bms_bad = s.aux.bms_unknown = 4294967295u;
+    const size_t aux = format_aux_len(&s, &ok);
+    CHECK(ok && aux <= TLM_SLOW_LINE_MAX && g_buf[aux - 1u] == '\n');
+    printf("  ax line: %zu characters (cap %u)\n", aux, (unsigned)TLM_SLOW_LINE_MAX);
     /* A quiet line: every counter fits, no cnt_more. */
     tlm_status_t q = day_long(0u);
     q.drive.can_rx = q.drive.can_tx = q.drive.sdo_ok = q.drive.hb_count = 7u;
@@ -196,11 +229,68 @@ static void a_line_over_its_cap_is_refused_not_cut(void)
     CHECK(!ok);
 }
 
+static void lift_and_battery_never_print_a_guess(void)
+{
+    tlm_status_t s = day_long(0u);
+    bool ok = false;
+    /* Position not valid: "unknown", never 0. Locked battery: "locked" and no value. */
+    s.aux.lift_pos.known = false;
+    s.aux.lift_age_us.known = false;
+    s.aux.bms = "locked";
+    s.aux.bms_values_known = false;
+    s.aux.bms_mv = 25600u;
+    (void)format_aux_len(&s, &ok);
+    CHECK(ok && strstr(g_buf, "\"st\":\"STOPPING\",\"pos\":\"unknown\",\"age_us\":\"unknown\"") != NULL);
+    CHECK(strstr(g_buf, "\"bms\":\"locked\"") != NULL && strstr(g_buf, "25600") == NULL && strstr(g_buf, "\"mv\"") == NULL);
+    /* Usable decoder (owner-confirmed protocol) with a sample: the values. */
+    s.aux.lift_pos.known = true;
+    s.aux.lift_pos.v = 12345u;
+    s.aux.bms = "usable";
+    s.aux.bms_values_known = true;
+    s.aux.bms_da = -15;
+    s.aux.bms_soc_pm = 800u;
+    s.aux.bms_age_us.known = true;
+    s.aux.bms_age_us.v = 42u;
+    (void)format_aux_len(&s, &ok);
+    CHECK(ok && strstr(g_buf, "\"pos\":12345,") != NULL);
+    CHECK(strstr(g_buf, "\"bms\":{\"mv\":25600,\"da\":-15,\"soc_pm\":800,\"age_us\":42}") != NULL);
+    /* Usable but no sample yet: unknown. Not configured: disabled. */
+    s.aux.bms_values_known = false;
+    (void)format_aux_len(&s, &ok);
+    CHECK(ok && strstr(g_buf, "\"bms\":\"unknown\"") != NULL);
+    s.aux.bms = "disabled";
+    (void)format_aux_len(&s, &ok);
+    CHECK(ok && strstr(g_buf, "\"bms\":\"disabled\"") != NULL);
+    /* Lift detail in the diag part: unknown until TPDO2 arrives. */
+    s.aux.lift_s2_known = false;
+    s.aux.lift_flags_known = false;
+    (void)format_aux_len(&s, &ok);
+    CHECK(ok && strstr(g_buf, "\"fl\":\"unknown\",\"vel\":\"unknown\",\"ma\":\"unknown\",\"flt\":\"unknown\"}") != NULL);
+    s.aux.lift_s2_known = s.aux.lift_flags_known = true;
+    s.aux.lift_flags = 0x03u;
+    s.aux.lift_vel = -250;
+    s.aux.lift_ma = 1500u;
+    s.aux.lift_faults = 0x102u;
+    (void)format_aux_len(&s, &ok);
+    CHECK(ok && strstr(g_buf, "\"fl\":\"0x03\",\"vel\":-250,\"ma\":1500,\"flt\":\"0x102\"}") != NULL);
+}
+
 static void slow_parts_alternate(void)
 {
     CHECK(tlm_slow_part(0u) == TLM_SLOW_CFG);
     CHECK(tlm_slow_part(TLM_SLOW_EVERY) == TLM_SLOW_DIAG);
     CHECK(tlm_slow_part(2u * TLM_SLOW_EVERY) == TLM_SLOW_CFG);
+    /* The ax line comes in every period without a slow line, never with one. */
+    unsigned aux = 0u;
+    for (uint32_t seq = 0u; seq < 100u; seq++)
+    {
+        if (tlm_aux_due(seq))
+        {
+            aux++;
+            CHECK(seq % TLM_SLOW_EVERY != 0u);
+        }
+    }
+    CHECK(aux == 80u && !tlm_aux_due(0u) && tlm_aux_due(1u));
     tlm_status_t s = heavy(1u);
     bool ok = false;
     const size_t n = format_len(true, TLM_SLOW_CFG, &s, TLM_SLOW_LINE_MAX, &ok);
@@ -214,5 +304,6 @@ int main(void)
     RUN(heavy_lines_fit_their_caps);
     RUN(a_line_over_its_cap_is_refused_not_cut);
     RUN(slow_parts_alternate);
+    RUN(lift_and_battery_never_print_a_guess);
     TEST_END();
 }

@@ -132,6 +132,11 @@ void tlm_format_disabled(tlm_buf_t *b, bool can_started, bool with_reason)
         {TLM_MB7060_STALE_SET == 0, "mb7060_stale", "TLM_MB7060_STALE_US unset"},
         {TLM_MB7060_TRIGGER_SET == 0, "mb7060_range",
          "no trigger pulse in this image: no range is attributed to a reading"},
+        {TLM_LIFT_HB_TIMEOUT_SET == 0, "lift_hb",
+         "TLM_LIFT_HB_TIMEOUT_US unset (TODO(Evans), D15 proposes 300 ms)"},
+        {TLM_DALY_ADDR_SET == 0, "bms", "Daly addresses unset (TODO(Evans)): CAN2 frames are not decoded"},
+        {TLM_DALY_PROTOCOL_CONFIRMED == 0, "bms_values",
+         "Daly protocol not confirmed for the delivered unit: battery values locked"},
     };
     bool first = true;
     for (size_t i = 0u; i < sizeof(f) / sizeof(f[0]); i++) {
@@ -214,6 +219,16 @@ static void drive(tlm_buf_t *b, const tlm_drive_status_t *d)
     obj(b, "fault", &d->fault);
 }
 
+static void kv_opt_or_unknown_i64(tlm_buf_t *b, const char *key, bool known, int64_t v)
+{
+    tlm_buf_key(b, key);
+    if (known) {
+        tlm_buf_i64(b, v);
+    } else {
+        qstr(b, "unknown");
+    }
+}
+
 /* Fast line: the TF-Luna ports. A port whose reception failed says so. */
 static void sensors_fast(tlm_buf_t *b, const tlm_sensors_status_t *s)
 {
@@ -290,6 +305,7 @@ static uint32_t counters(tlm_buf_t *b, const tlm_status_t *s)
         {"rx_q_ovf", d->can_rx_q_ovf},
         {"rx_defer", d->can_rx_deferred},
         {"tick_miss", d->tick_missed},
+        {"sens_miss", s->sensors.poll_missed},
         {"sdo_ok", d->sdo_ok},
         {"sdo_to", d->sdo_timeouts},
         {"sdo_ab", d->sdo_aborts},
@@ -308,6 +324,17 @@ static uint32_t counters(tlm_buf_t *b, const tlm_status_t *s)
         {"ring_lost", s->sensors.ring_lost_bytes},
         {"rx_start_fail", s->sensors.rx_start_failures},
         {"rx_restart", s->sensors.rx_restarts},
+        {"c2_rx", s->aux.c2_rx},
+        {"c3_rx", s->aux.c3_rx},
+        {"c2_lost", s->aux.c2_lost},
+        {"c3_lost", s->aux.c3_lost},
+        {"c2_tx_ref", s->aux.c2_tx_ref},
+        {"c3_tx_ref", s->aux.c3_tx_ref},
+        {"lift_hb", s->aux.lift_hb_n},
+        {"lift_hb_lost", s->aux.lift_hb_lost},
+        {"lift_gap", s->aux.lift_gaps},
+        {"lift_bad", s->aux.lift_bad},
+        {"lift_emcy", s->aux.lift_emcy},
         {"overrun", s->report_overruns},
         {"dropped", s->lines_dropped},
         {"too_long", s->lines_too_long},
@@ -438,5 +465,82 @@ bool tlm_format_slow(const tlm_status_t *s, tlm_slow_part_t part, tlm_buf_t *b)
         tlm_buf_kv_u64(b, s->stacks.name[i] != 0 ? s->stacks.name[i] : "?", s->stacks.free_words[i]);
     }
     tlm_buf_str(b, "}}\n");
+    return !b->overflow;
+}
+
+bool tlm_aux_due(uint32_t seq)
+{
+    return seq % TLM_SLOW_EVERY != 0u;
+}
+
+/* "ax" line: CTL-017 lift (CAN3) and Daly BMS (CAN2), receive only. A value
+ * that was not received is "unknown"; battery values appear only when the
+ * decoder is usable, a locked decoder prints "locked" and no value. */
+bool tlm_format_aux(const tlm_status_t *s, tlm_buf_t *b)
+{
+    const tlm_aux_status_t *a = &s->aux;
+    header(b, "ax", s);
+    put(b, ',');
+    tlm_buf_kv_str(b, "c2", a->can2_started ? "on" : "off");
+    put(b, ',');
+    tlm_buf_kv_str(b, "c3", a->can3_started ? "on" : "off");
+    tlm_buf_str(b, ",\"lift\":{");
+    tlm_buf_kv_str(b, "hb", a->lift_hb);
+    put(b, ',');
+    tlm_buf_kv_opt(b, "hb_age_us", a->lift_hb_age_us);
+    put(b, ',');
+    tlm_buf_kv_str(b, "nmt", a->lift_nmt);
+    put(b, ',');
+    tlm_buf_kv_str(b, "st", a->lift_state);
+    put(b, ',');
+    tlm_buf_kv_opt(b, "pos", a->lift_pos);
+    put(b, ',');
+    tlm_buf_kv_opt(b, "age_us", a->lift_age_us);
+    put(b, ',');
+    tlm_buf_key(b, "fl");
+    if (a->lift_flags_known) {
+        put(b, '"');
+        tlm_buf_hex(b, a->lift_flags, 2u);
+        put(b, '"');
+    } else {
+        qstr(b, "unknown");
+    }
+    put(b, ',');
+    kv_opt_or_unknown_i64(b, "vel", a->lift_s2_known, a->lift_vel);
+    put(b, ',');
+    kv_opt_or_unknown_i64(b, "ma", a->lift_s2_known, a->lift_ma);
+    put(b, ',');
+    tlm_buf_key(b, "flt");
+    if (a->lift_s2_known) {
+        put(b, '"');
+        tlm_buf_hex(b, a->lift_faults, 3u);
+        put(b, '"');
+    } else {
+        qstr(b, "unknown");
+    }
+    tlm_buf_str(b, "},");
+    if (a->bms_values_known) {
+        tlm_buf_str(b, "\"bms\":{");
+        tlm_buf_kv_u64(b, "mv", a->bms_mv);
+        put(b, ',');
+        kv_opt_or_unknown_i64(b, "da", true, a->bms_da);
+        put(b, ',');
+        tlm_buf_kv_u64(b, "soc_pm", a->bms_soc_pm);
+        put(b, ',');
+        tlm_buf_kv_opt(b, "age_us", a->bms_age_us);
+        put(b, '}');
+    } else {
+        tlm_buf_kv_str(b, "bms", (a->bms != 0 && a->bms[0] == 'u') ? "unknown" : a->bms);
+    }
+    /* decoder counters: [decoded, foreign, bad, unknown id] */
+    tlm_buf_str(b, ",\"bmsc\":[");
+    tlm_buf_u64(b, a->bms_dec);
+    put(b, ',');
+    tlm_buf_u64(b, a->bms_foreign);
+    put(b, ',');
+    tlm_buf_u64(b, a->bms_bad);
+    put(b, ',');
+    tlm_buf_u64(b, a->bms_unknown);
+    tlm_buf_str(b, "]}\n");
     return !b->overflow;
 }

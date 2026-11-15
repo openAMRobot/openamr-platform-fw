@@ -26,7 +26,8 @@ file(GLOB OAMR_SENSOR_SOURCES CONFIGURE_DEPENDS
   ${REPO_ROOT}/firmware/telemetry/src/*.c)
 set(OAMR_SENSOR_INCLUDES
   ${REPO_ROOT}/firmware/sensor_bridge/include
-  ${REPO_ROOT}/firmware/telemetry/include)
+  ${REPO_ROOT}/firmware/telemetry/include
+  ${REPO_ROOT}/firmware/canopen/include)  # oamr/co_frame.h for ctl017_rx
 set(OAMR_WARNINGS -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -Wpedantic)
 
 if(CMAKE_CROSSCOMPILING)

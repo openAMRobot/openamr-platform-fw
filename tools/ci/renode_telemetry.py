@@ -24,6 +24,17 @@ of tlm_params.h; "default_build" needs the Debug or Release ELF):
   reset_keep_ram     two machine resets (RAM kept): boot id 1, 2, 3, sequence from zero each time
   fresh_start        a fresh Renode start after a run that reached boot id 3: boot id 1, cold
                      record, sequence from zero
+  aux_buses          CTL-017 stub on CAN3 and Daly stub on CAN2: lift values follow the stub,
+                     unknown when the stub says so, counter gaps counted, heartbeat lost when
+                     the lift stops; battery only "locked"; no frame at all on CAN2 or CAN3
+  aux_default_build  default image with both stubs: lift heartbeat and BMS disabled, nothing sent
+  idle_sleep         the idle task executes WFI: the CPU executes far fewer instructions than its
+                     MIPS setting allows in the virtual time that passed
+
+Every machine reset is RESET_STEPS: pause, "machine Reset", install the SystemCoreClock hook
+again (a reset drops it, and the SysTick model would fall back to its default frequency), then
+the next RunFor starts the machine. reset_mid_run and reset_keep_ram check that the status line
+rate after a reset equals the rate before it.
 
 Usage: renode_telemetry.py --renode RENODE --elf-test RenodeTest.elf [--elf-default Debug.elf]
                            [--scenario NAME ...] [--out DIR] [--summary FILE]
@@ -90,13 +101,43 @@ def resc(elf, console, steps):
         f"sysbus.usart3 CreateFileBackend @{console} true",
         'emulation CreateCANHub "can1"',
         "connector Connect sysbus.fdcan1 can1",
+        'emulation CreateCANHub "can2"',
+        "connector Connect sysbus.fdcan2 can2",
+        'emulation CreateCANHub "can3"',
+        "connector Connect sysbus.fdcan3 can3",
         f"include @{STUB}",
         "logLevel 2",
         'tlm_stub_attach "can1"',
     ]
     lines += steps
-    lines += ["tlm_stub_report", "quit"]
+    lines += ["tlm_stub_cpu_report", "tlm_stub_report", "quit"]
     return "\n".join(lines) + "\n"
+
+
+# A machine reset inside one Renode process. "machine Reset" drops the SystemCoreClock bus hook
+# of the stub; without it the SysTick model runs at its default frequency after the reset and the
+# image's tick (and so its status line rate) no longer matches virtual time. The machine is
+# paused, reset, the hook installed again, and the next RunFor starts it.
+RESET_STEPS = ["pause", "machine Reset", "tlm_stub_clock"]
+
+# Status line rate: one line per report period. Allowed difference between the rate of two
+# boots, and between a boot's rate and the nominal one, in lines per second of virtual time
+# (a boot loses up to one period at its start and at its end).
+LINES_PER_S = 1000000 // 100000
+RATE_TOLERANCE = 2.5
+
+
+def check_line_rates(c, runs, seconds, where):
+    """Each boot ran for seconds[i] of virtual time: its status line rate is the nominal one and
+    equals the rate of the boot before it."""
+    rates = [len(lines) / d for (_, lines), d in zip(runs, seconds)]
+    for i, r in enumerate(rates):
+        c.that(abs(r - LINES_PER_S) <= RATE_TOLERANCE,
+               f"{where}: boot {i + 1} printed {r:.1f} status lines per virtual second, expected {LINES_PER_S}")
+    for i in range(1, len(rates)):
+        c.that(abs(rates[i] - rates[i - 1]) <= RATE_TOLERANCE,
+               f"{where}: line rate after reset {i} is {rates[i]:.1f}/s, before it {rates[i - 1]:.1f}/s")
+    return rates
 
 
 def run_for(seconds):
@@ -196,7 +237,7 @@ def scenario_nominal():
             c.that(sl["params"] == "test" and sl["sdo"] == "on" and sl["nmt"] == "operational", f"{where}: {sl['params']} {sl['sdo']} {sl['nmt']}")
             c.that(sl["bus_off"] is False, f"{where}: bus state {sl['bus_off']}")
             check_res_valid(c, sl, where)
-            c.that(sl["dis"] == ["mb7060_range"], f"{where}: disabled {sl['dis']}")
+            c.that(sl["dis"] == ["mb7060_range", "bms_values"], f"{where}: disabled {sl['dis']}")
             c.that(sl["health"] == "available", f"{where}: SDO health {sl['health']}")
         for sl in diag_lines(records):
             where = f"slow diag seq {sl['seq']}"
@@ -204,10 +245,12 @@ def scenario_nominal():
             c.that(isinstance(mb[0], int) and mb[1] >= 1, f"{where}: MB7060 uart4 {mb}")
             c.that(sl["mb"]["uart5"] == [UNKNOWN, 0], f"{where}: MB7060 uart5 {sl['mb']['uart5']}")
             c.that(sl["rx"] == {}, f"{where}: rx {sl['rx']}")
-            c.that(sorted(sl["stk"]) == ["can1_rx", "can1_tick", "idle", "reporter", "sensors"]
+            c.that(sorted(sl["stk"]) == ["can1_rx", "can1_tick", "can_aux", "idle", "reporter", "sensors"]
                    and all(w > 0 for w in sl["stk"].values()), f"{where}: stack marks {sl['stk']}")
         last = lines[-1]
-        c.that(sorted(last["cnt"]) == ["hb", "hb_boot", "rx", "sdo_ok", "tx"], f"non-zero counters in a nominal run: {last['cnt']}")
+        # No lift on CAN3 in this scenario: its heartbeat is lost once, after the 300 ms test timeout.
+        c.that(sorted(last["cnt"]) == ["hb", "hb_boot", "lift_hb_lost", "rx", "sdo_ok", "tx"],
+               f"non-zero counters in a nominal run: {last['cnt']}")
         c.that(cnt(last, "hb_boot") == 2 and cnt(last, "hb") >= 15, f"heartbeat counters {last['cnt']}")
         # The stub keeps counting for the rest of the last period, after the last line was printed.
         c.that(cnt(last, "sdo_ok") >= 80 and 0 <= stub["requests"] - cnt(last, "tx") <= 6,
@@ -333,7 +376,7 @@ def scenario_duplicate_late():
 
 
 def scenario_reset_mid_run():
-    steps = [run_for("1.0"), "machine Reset", stub_set("heartbeat_ms", 100), run_for("1.0")]
+    steps = [run_for("1.0"), *RESET_STEPS, stub_set("heartbeat_ms", 100), run_for("1.0")]
 
     def check(c, records, stub):
         runs = telemetry_log.boots(records)
@@ -346,6 +389,8 @@ def scenario_reset_mid_run():
         c.that(l1 and l1[-1]["seq"] >= 8, "first boot did not count up")
         c.that(l2 and l2[0]["seq"] == 0 and l2[0]["boot"] == 2, f"after the reset: seq {l2[0]['seq'] if l2 else None}")
         c.that(l2 and l2[0]["up_us"] < 2 * PERIOD_US, f"uptime after the reset {l2[0]['up_us'] if l2 else None}")
+        check_line_rates(c, runs, [1.0, 1.0], "reset mid run")
+        c.that(stub["clock_hooks"] == 2, f"SystemCoreClock hook installed {stub['clock_hooks']} times, expected 2")
         if l2:
             # Nothing of the first boot is carried over: counters and read counts start again.
             c.that(cnt(l2[0], "sdo_ok") <= 5 and obj(l2[0], "wheel", "ch1")["n"] <= 1, f"state carried over the reset: {l2[0]['cnt']}")
@@ -356,7 +401,7 @@ def scenario_reset_mid_run():
 def scenario_default_build():
     steps = ['tlm_stub_tfluna "sysbus.usart2" 10 150 500', run_for("1.0")]
     expected_disabled = ["hb", "sdo", "sdo_health_n", "sdo_health_t", "drive_age", "speed_res", "tfluna", "tfluna_stale",
-                         "mb7060_stale", "mb7060_range"]
+                         "mb7060_stale", "mb7060_range", "lift_hb", "bms", "bms_values"]
 
     def check(c, records, stub):
         check_banner(c, records, "default")
@@ -461,7 +506,7 @@ def check_runs_from_zero(c, runs, where):
 
 
 def scenario_reset_keep_ram():
-    steps = [run_for("0.6"), "machine Reset", run_for("0.6"), "machine Reset", stub_set("heartbeat_ms", 100), run_for("0.6")]
+    steps = [run_for("1.0"), *RESET_STEPS, run_for("1.0"), *RESET_STEPS, stub_set("heartbeat_ms", 100), run_for("1.0")]
 
     def check(c, records, stub):
         runs = telemetry_log.boots(records)
@@ -471,13 +516,14 @@ def scenario_reset_keep_ram():
         c.that(ids == [1, 2, 3], f"boot ids {ids}, expected 1, 2, 3 while RAM is kept")
         c.that([b["boot_record"] for b, _ in runs] == ["cold", "retained", "retained"], "boot record states")
         check_runs_from_zero(c, runs, "reset keeping RAM")
+        check_line_rates(c, runs, [1.0, 1.0, 1.0], "reset keeping RAM")
     return "test", steps, check
 
 
 def scenario_fresh_start():
     # First Renode process: two resets, so the record reaches boot id 3. Second, fresh process
     # (new emulation, RAM not kept): boot id 1 again, cold record.
-    before = [run_for("0.4"), "machine Reset", run_for("0.4"), "machine Reset", run_for("0.4")]
+    before = [run_for("0.4"), *RESET_STEPS, run_for("0.4"), *RESET_STEPS, run_for("0.4")]
     steps = [run_for("0.6")]
 
     def check(c, records, stub, before_records):
@@ -492,6 +538,115 @@ def scenario_fresh_start():
     return "test", steps, check, before
 
 
+AUX_ATTACH = 'tlm_aux_attach "can2" "can3"'
+
+
+def lift_set(key, value):
+    return f'tlm_lift_set "{key}" {value}'
+
+
+def check_no_battery_value(c, ax, where):
+    c.that(ax["bms"] == "locked", f"{where}: bms {ax['bms']!r}, expected \"locked\" while the decoder is locked")
+
+
+def scenario_aux_buses():
+    steps = [AUX_ATTACH, run_for("1.0"),
+             lift_set("state", 4), lift_set("position", 7000), lift_set("velocity", 500), lift_set("current_ma", 1500),
+             run_for("0.5"),
+             lift_set("flags", 0x80), lift_set("position", 0xFFFF), lift_set("skip_counter", 1), run_for("0.5"),
+             lift_set("silent", 1), run_for("0.6")]
+
+    def check(c, records, stub):
+        ax = ax_lines(records)
+        lines = status_lines(records)
+        if not c.that(len(ax) >= 4 * (len(lines) // 5) - 1 and len(lines) >= 24, f"{len(ax)} ax lines for {len(lines)} status lines"):
+            return
+        sent = {a["bus"]: a["frames_sent"] for a in stub["aux"]}
+        c.that(sent.get("can2", 0) >= 10 and sent.get("can3", 0) >= 50, f"stub frames {sent}")
+        phase1 = [a for a in ax if 300000 <= up_of(lines, a) <= 1000000]
+        phase2 = [a for a in ax if 1200000 <= up_of(lines, a) <= 1500000]
+        phase3 = [a for a in ax if 1700000 <= up_of(lines, a) <= 2000000]
+        lost = [a for a in ax if up_of(lines, a) >= 2000000 + HB_TIMEOUT_US + PERIOD_US]
+        c.that(phase1 and phase2 and phase3 and lost, "an ax phase has no line")
+        for a in ax:
+            check_no_battery_value(c, a, f"ax seq {a['seq']}")
+            c.that(a["c2"] == "on" and a["c3"] == "on", f"ax seq {a['seq']}: buses {a['c2']} {a['c3']}")
+        for a in phase1:
+            lift = a["lift"]
+            c.that(lift["hb"] == "alive" and lift["nmt"] == "operational" and lift["st"] == "IDLE" and lift["pos"] == 5000
+                   and lift["fl"] == "0x03" and lift["vel"] == 0 and lift["ma"] == 0 and lift["flt"] == "0x000",
+                   f"ax seq {a['seq']}: lift {lift}")
+            c.that(isinstance(lift["age_us"], int) and lift["age_us"] <= 2 * PERIOD_US, f"ax seq {a['seq']}: lift age {lift['age_us']}")
+        for a in phase2:
+            lift = a["lift"]
+            c.that(lift["st"] == "MOVING" and lift["pos"] == 7000 and lift["vel"] == 500 and lift["ma"] == 1500,
+                   f"ax seq {a['seq']}: lift after the move {lift}")
+        for a in phase3:
+            lift = a["lift"]
+            c.that(lift["pos"] == UNKNOWN and lift["fl"] == "0x80", f"ax seq {a['seq']}: position not valid but {lift}")
+        for a in lost:
+            c.that(a["lift"]["hb"] == "lost", f"ax seq {a['seq']}: lift heartbeat {a['lift']['hb']} after the lift went silent")
+        c.that(ax[-1]["bmsc"][0] >= 10 and ax[-1]["bmsc"][1:] == [0, 0, 0], f"BMS decoder counters {ax[-1]['bmsc']}")
+        last = lines[-1]
+        c.that(cnt(last, "lift_gap") == 1 and cnt(last, "lift_hb_lost") == 1, f"lift counters {last['cnt']}")
+        c.that(cnt(last, "c2_rx") >= 10 and cnt(last, "c3_rx") >= 50, f"aux rx counters {last['cnt']}")
+        c.that(cnt(last, "c2_tx_ref") == 0 and cnt(last, "c3_tx_ref") == 0 and cnt(last, "c2_lost") == 0
+               and cnt(last, "c3_lost") == 0, f"aux counters {last['cnt']}")
+        # The drive side is unaffected by the aux traffic.
+        for s in lines[5:]:
+            check_drive_valid(c, s, f"seq {s['seq']} (aux traffic)")
+    return "test", steps, check
+
+
+def scenario_aux_default_build():
+    steps = [AUX_ATTACH, run_for("1.0")]
+
+    def check(c, records, stub):
+        ax = ax_lines(records)
+        if not c.that(len(ax) >= 6, f"{len(ax)} ax lines"):
+            return
+        for a in ax[2:]:
+            where = f"ax seq {a['seq']}"
+            c.that(a["bms"] == "disabled" and a["bmsc"] == [0, 0, 0, 0], f"{where}: bms {a['bms']} {a['bmsc']} without addresses")
+            lift = a["lift"]
+            c.that(lift["hb"] == "disabled" and lift["hb_age_us"] == UNKNOWN and lift["nmt"] == UNKNOWN, f"{where}: lift heartbeat {lift}")
+            # The node id has a source, so the lift status is decoded in the default image too.
+            c.that(lift["st"] == "IDLE" and lift["pos"] == 5000, f"{where}: lift {lift}")
+        c.that(stub["requests"] == 0, f"default image sent {stub['requests']} frame(s) on CAN1")
+    return "default", steps, check
+
+
+def up_of(lines, a):
+    for s in lines:
+        if s["seq"] == a["seq"] and s["boot"] == a["boot"]:
+            return s["up_us"]
+    return -1
+
+
+def ax_lines(records):
+    return telemetry_log.ax_lines(records)
+
+
+def scenario_idle_sleep():
+    steps = [run_for("2.0")]
+
+    def check(c, records, stub):
+        cpu = stub.get("cpu")
+        if not c.that(cpu is not None, "no TLM_CPU report from Renode"):
+            return
+        budget = cpu["virtual_s"] * cpu["mips"] * 1e6
+        c.that(cpu["virtual_s"] >= 1.9, f"virtual time {cpu['virtual_s']} s")
+        # A spinning idle loop executes about the whole budget; with WFI the CPU sleeps between
+        # interrupts. Bound: a quarter of the budget (measured value in the scenario output).
+        c.that(cpu["instructions"] < IDLE_BUSY_FRACTION_MAX * budget,
+               f"{cpu['instructions']} instructions in {cpu['virtual_s']:.2f} s at {cpu['mips']} MIPS "
+               f"({cpu['instructions'] / budget:.2%} of the budget): the idle task does not sleep")
+        c.that(len(status_lines(records)) >= 18, f"{len(status_lines(records))} status lines in 2 s")
+    return "test", steps, check
+
+
+IDLE_BUSY_FRACTION_MAX = 0.25
+
 SCENARIOS = collections.OrderedDict([
     ("nominal", scenario_nominal),
     ("drive_silent", scenario_drive_silent),
@@ -504,6 +659,9 @@ SCENARIOS = collections.OrderedDict([
     ("uart_overflow_tfluna", scenario_uart_overflow_tfluna),
     ("reset_keep_ram", scenario_reset_keep_ram),
     ("fresh_start", scenario_fresh_start),
+    ("aux_buses", scenario_aux_buses),
+    ("aux_default_build", scenario_aux_default_build),
+    ("idle_sleep", scenario_idle_sleep),
 ])
 
 
@@ -525,14 +683,22 @@ def run_renode(renode, elf, out_dir, tag, steps, timeout):
     if errors:
         return "Renode reported: " + errors[0].strip(), "", None, [], unhandled
     stub = None
+    cpu = None
+    aux = []
     violations = []
     for line in output.splitlines():
         if line.startswith("TLM_STUB {"):
             stub = json.loads(line[len("TLM_STUB "):])
+        elif line.startswith("TLM_AUX {"):
+            aux.append(json.loads(line[len("TLM_AUX "):]))
+        elif line.startswith("TLM_CPU {"):
+            cpu = json.loads(line[len("TLM_CPU "):])
         elif line.startswith("TLM_STUB_VIOLATION"):
             violations.append(line)
     if stub is None or not console.exists():
         return "no stub report or no console file from Renode", "", None, [], unhandled
+    stub["cpu"] = cpu
+    stub["aux"] = aux
     return None, console.read_text(errors="replace"), stub, violations, unhandled
 
 
@@ -567,6 +733,9 @@ def run_scenario(name, renode, elfs, out_dir, timeout):
     c.that(not any(r["t"] == "err" for r in records), "the image printed an error record (line over its cap)")
     # Read-only boundary seen from the bus: only SDO initiate-upload requests to node 1.
     c.that(stub["violations"] == 0, f"{stub['violations']} frame(s) that are not an SDO upload request: {violations[:3]}")
+    # CAN2 and CAN3 are receive-only: the stubs there must not have received a single frame.
+    for a in stub["aux"]:
+        c.that(a["received"] == 0, f"the image sent {a['received']} frame(s) on {a['bus']}: {violations[:3]}")
     try:
         if before is not None:
             check(c, records, stub, before_records)

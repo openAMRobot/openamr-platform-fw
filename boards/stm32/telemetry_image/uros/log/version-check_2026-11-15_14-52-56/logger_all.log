@@ -1,0 +1,15 @@
+[-1794754375021584640.000s] DEBUG:colcon:Command line arguments: ['/tmp/claude-0/venv/bin/colcon', 'version-check']
+[-1794754375021584640.000s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='version-check', verb_parser=<colcon_defaults.argument_parser.defaults.DefaultArgumentsDecorator object at 0x7faa471c1220>, verb_extension=<colcon_devtools.verb.version_check.VersionCheckVerb object at 0x7faa471f9550>, main=<bound method VersionCheckVerb.main of <colcon_devtools.verb.version_check.VersionCheckVerb object at 0x7faa471f9550>>)
+[-1794754375021584640.000s] ERROR:colcon:colcon version-check: [Errno 32] Broken pipe
+Traceback (most recent call last):
+  File "/tmp/claude-0/venv/lib/python3.13/site-packages/colcon_core/command.py", line 593, in verb_main
+    rc = context.args.main(context=context)
+  File "/tmp/claude-0/venv/lib/python3.13/site-packages/colcon_devtools/verb/version_check.py", line 70, in main
+    print(
+    ~~~~~^
+        '{dist_name} {dist_ver}: up-to-date'
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        .format_map(locals()))
+        ^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
+

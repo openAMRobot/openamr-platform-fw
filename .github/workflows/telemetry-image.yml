@@ -1,10 +1,12 @@
 name: Telemetry image
 
-# Telemetry image of boards/stm32/telemetry_image (proposal, PR #51): builds the three presets,
+# Telemetry image of boards/stm32/telemetry_image (proposal, PR #51): builds the four presets,
 # runs the host tests of the modules it uses (PR #48 tests/host/sensors, PR #49 tests/host/canopen),
 # of the image itself (tests/host/telemetry_image) and of the console-log checker
 # (tests/host/telemetry_log), and runs the Renode scenarios of tools/ci/renode_telemetry.py on
-# Renode's STM32H743 model. GitHub-hosted runners only: no hardware, no secrets, nothing flashed.
+# Renode's STM32H743 model, and the micro-ROS phases of tools/ci/renode_uros.py (preset
+# TelemetryUrosSerialSimBench against a micro-ROS agent in a ROS 2 Jazzy container; serial
+# transport, simulation only). GitHub-hosted runners only: no hardware, no secrets, nothing flashed.
 # A skipped or blocked scenario fails the run; it is never reported as a pass.
 on:
   pull_request:
@@ -17,6 +19,7 @@ on:
       - "tests/host/telemetry_log/**"
       - "tests/renode/**"
       - "tools/ci/renode_*.py"
+      - "tools/ci/build_uros_agent.sh"
       - "tools/ci/telemetry_log.py"
       - ".github/workflows/telemetry-image.yml"
   workflow_dispatch:
@@ -30,7 +33,12 @@ env:
   # Renode portable release and the SHA-256 pinned in firmware-nightly.yml (checked below)
   RENODE_URL: https://github.com/renode/renode/releases/download/v1.16.1/renode-1.16.1.linux-portable-dotnet.tar.gz
   RENODE_SHA256: 00e113cdbd0f5354cf2f64bbe3f5a070d8958409542fca66e45ac97d982938c0
-  RENODE_SCENARIOS: 11
+  RENODE_SCENARIOS: 14
+  # TelemetryUrosSerialSimBench: Arm C++ headers for the generated type support (same archive as
+  # APT_ARM) and the Python build tools of uros/build_libmicroros.sh, pinned.
+  APT_UROS: libstdc++-arm-none-eabi-newlib=15:13.2.rel1-2+26
+  PIP_UROS: colcon-common-extensions==0.3.0 catkin_pkg==1.1.0 empy==3.3.4 lark==1.2.2 setuptools==75.8.0
+  UROS_PHASES: 4
 
 jobs:
   build:
@@ -40,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [Debug, Release, RenodeTest]
+        preset: [Debug, Release, RenodeTest, TelemetryUrosSerialSimBench]
     defaults:
       run:
         working-directory: boards/stm32/telemetry_image
@@ -54,8 +62,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends $APT_ARM
           arm-none-eabi-gcc --version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Configure (fetches FreeRTOS-Kernel V11.1.0, commit checked)
-        run: cmake --preset ${{ matrix.preset }}
+      - name: micro-ROS build tools (TelemetryUrosSerialSimBench only, pinned)
+        if: matrix.preset == 'TelemetryUrosSerialSimBench'
+        working-directory: .
+        run: |
+          sudo apt-get install -y --no-install-recommends $APT_UROS
+          python3 -m venv "$RUNNER_TEMP/uros-venv"
+          "$RUNNER_TEMP/uros-venv/bin/pip" install --quiet $PIP_UROS
+          echo "$RUNNER_TEMP/uros-venv/bin" >> "$GITHUB_PATH"
+      - name: Configure (fetches FreeRTOS-Kernel V11.1.0 and, for micro-ROS, every pinned repository; commits checked)
+        run: |
+          cmake --preset ${{ matrix.preset }} || { tail -n 80 build/${{ matrix.preset }}/libmicroros-build.log 2>/dev/null; exit 1; }
       - name: Build (post-link read-only guard included)
         run: |
           set -o pipefail
@@ -75,6 +92,7 @@ jobs:
           name: telemetry-image-${{ matrix.preset }}
           path: |
             boards/stm32/telemetry_image/build/${{ matrix.preset }}/telemetry_image.elf
+            boards/stm32/telemetry_image/build/${{ matrix.preset }}/telemetry_image.map
             boards/stm32/telemetry_image/build.log
           if-no-files-found: error
 
@@ -148,4 +166,55 @@ jobs:
         with:
           name: renode-telemetry
           path: build/renode-telemetry
+          retention-days: 30
+
+  renode-uros:
+    name: Renode micro-ROS phases (serial transport, simulation only)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container:
+      image: ros:jazzy-ros-base
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: telemetry-image-TelemetryUrosSerialSimBench
+          path: elf/uros
+      - name: Packages (Renode run time, agent build)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends curl ca-certificates git libicu74 python3-colcon-common-extensions
+      - name: Build the micro-ROS agent (pinned commits, tools/ci/build_uros_agent.sh)
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          bash tools/ci/build_uros_agent.sh "$RUNNER_TEMP/agent_ws" > "$RUNNER_TEMP/agent-build.log" 2>&1 \
+            || { tail -n 80 "$RUNNER_TEMP/agent-build.log"; exit 1; }
+      - name: Download Renode 1.16.1 (SHA-256 checked)
+        run: |
+          curl -sSL -o "$RUNNER_TEMP/renode.tar.gz" "$RENODE_URL"
+          echo "$RENODE_SHA256  $RUNNER_TEMP/renode.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/renode" && tar xzf "$RUNNER_TEMP/renode.tar.gz" -C "$RUNNER_TEMP/renode" --strip-components=1
+      - name: Run every phase; a failed or blocked one fails the job
+        run: |
+          set -o pipefail
+          source /opt/ros/jazzy/setup.bash
+          source "$RUNNER_TEMP/agent_ws/install/setup.bash"
+          mkdir -p build
+          python3 tools/ci/renode_uros.py --renode "$RUNNER_TEMP/renode/renode" \
+            --elf elf/uros/build/TelemetryUrosSerialSimBench/telemetry_image.elf \
+            --agent "$RUNNER_TEMP/agent_ws/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" \
+            --out build/renode-uros --summary "$GITHUB_STEP_SUMMARY" | tee build/renode-uros.log
+          grep -qE "^Renode micro-ROS phases: $UROS_PHASES passed, 0 failed, 0 blocked, of $UROS_PHASES$" build/renode-uros.log \
+            || { echo "::error::not every one of the $UROS_PHASES micro-ROS phases passed"; exit 1; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: renode-uros
+          path: build/renode-uros
           retention-days: 30

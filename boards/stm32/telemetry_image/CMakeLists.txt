@@ -9,6 +9,8 @@
 #   cmake --preset Debug   && cmake --build --preset Debug
 #   cmake --preset Release && cmake --build --preset Release
 #   cmake --preset RenodeTest && cmake --build --preset RenodeTest   # unapproved test values
+#   cmake --preset TelemetryUrosSerialSimBench && cmake --build --preset TelemetryUrosSerialSimBench
+#        # micro-ROS over USART3: simulation and bench only (README "micro-ROS")
 cmake_minimum_required(VERSION 3.22)
 
 set(CMAKE_C_STANDARD 11)
@@ -24,6 +26,7 @@ project(${CMAKE_PROJECT_NAME})
 enable_language(C ASM)
 
 option(TLM_TEST_PARAMS "Activate the unapproved test values of tlm_params.h (Renode only)" OFF)
+option(TLM_UROS "micro-ROS client over the serial transport (simulation and bench only)" OFF)
 set(TLM_FREERTOS_TAG "V11.1.0" CACHE STRING "FreeRTOS-Kernel release tag fetched at configure time")
 set(TLM_FREERTOS_SHA "dbf70559b27d39c1fdb68dfb9a32140b6a6777a0" CACHE STRING
     "Commit the tag must resolve to; configure fails on a mismatch")
@@ -78,6 +81,8 @@ target_link_libraries(freertos_kernel PUBLIC stm32cubemx)
 add_library(oamr_modules OBJECT
   ${REPO_ROOT}/firmware/telemetry/src/reset_cause.c
   ${REPO_ROOT}/firmware/telemetry/src/freshness.c
+  ${REPO_ROOT}/firmware/telemetry/src/daly_rx.c
+  ${REPO_ROOT}/firmware/telemetry/src/ctl017_rx.c
   ${REPO_ROOT}/firmware/sensor_bridge/src/mb7060.c
   ${REPO_ROOT}/firmware/sensor_bridge/src/tfluna.c
   ${REPO_ROOT}/firmware/canopen/src/co_cobid.c
@@ -111,13 +116,15 @@ set(TLM_SOURCES
   src/tlm_console.c
   src/tlm_can1.c
   src/tlm_can1_tx.c
+  src/tlm_can_aux.c
   src/tlm_sensors.c
   src/tlm_report.c)
 # Pure C files (no HAL, no RTOS): built with -Wconversion and by the host tests.
 set(TLM_PURE_SOURCES
   src/tlm_format.c
   src/tlm_uart_rx.c
-  src/tlm_sched.c)
+  src/tlm_sched.c
+  src/tlm_can_aux_tx.c)
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   ${TLM_SOURCES}
   ${TLM_PURE_SOURCES}
@@ -137,6 +144,35 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
   $<$<BOOL:${TLM_TEST_PARAMS}>:TLM_TEST_PARAMS=1>)
 list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 target_link_libraries(${CMAKE_PROJECT_NAME} freertos_kernel oamr_modules stm32cubemx)
+
+# ---- micro-ROS client (TLM_UROS): fetched at pinned commits, not vendored ----
+# uros/build_libmicroros.sh clones every repository of uros/micro_ros.pins at its
+# pinned commit (a mismatch fails) and builds libmicroros.a with static pools
+# (uros/colcon.meta). It runs at configure time and is skipped when the pins,
+# the meta file, the toolchain file and the script are unchanged.
+if(TLM_UROS)
+  set(TLM_UROS_DIR ${CMAKE_BINARY_DIR}/_deps/libmicroros)
+  execute_process(COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/uros/build_libmicroros.sh ${TLM_UROS_DIR}
+                  RESULT_VARIABLE _uros_rc OUTPUT_FILE ${CMAKE_BINARY_DIR}/libmicroros-build.log
+                  ERROR_FILE ${CMAKE_BINARY_DIR}/libmicroros-build.log)
+  if(NOT _uros_rc EQUAL 0)
+    message(FATAL_ERROR "libmicroros build failed (log: ${CMAKE_BINARY_DIR}/libmicroros-build.log)")
+  endif()
+  file(GLOB _uros_inc LIST_DIRECTORIES true ${TLM_UROS_DIR}/include/*)
+  set(TLM_UROS_SOURCES src/tlm_uros.c src/tlm_uros_transport_serial.c)
+  set(TLM_UROS_PURE src/tlm_uros_sm.c src/tlm_uros_alloc.c src/tlm_uros_msg.c)
+  target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${TLM_UROS_SOURCES} ${TLM_UROS_PURE})
+  set_source_files_properties(${TLM_UROS_SOURCES} PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wshadow;-Wstrict-prototypes")
+  set_source_files_properties(${TLM_UROS_PURE} PROPERTIES COMPILE_OPTIONS "${TLM_WARNINGS}")
+  target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE ${TLM_UROS_DIR}/include ${_uros_inc})
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE TLM_UROS=1)
+  target_link_libraries(${CMAKE_PROJECT_NAME} ${TLM_UROS_DIR}/libmicroros.a)
+  # No heap: every C-library allocation entry goes to a fatal stop (src/tlm_uros.c).
+  target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
+    -Wl,--wrap=_malloc_r,--wrap=_calloc_r,--wrap=_realloc_r,--wrap=_free_r)
+endif()
 
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -DNM=${CMAKE_NM} -DELF=$<TARGET_FILE:${CMAKE_PROJECT_NAME}>

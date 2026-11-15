@@ -25,6 +25,17 @@
 #   tlm_stub_mb7060 "sysbus.uart4" period_ms range_cm                (0 ms = stop)
 #   tlm_stub_uart_burst "sysbus.usart2" frames distance_cm strength  TF-Luna frames back to back, now
 #   tlm_stub_report                  print one "TLM_STUB {json}" line
+#   tlm_aux_attach "can2" "can3"     create the BMS stub on hub can2 and the CTL-017 stub on can3
+#   tlm_lift_set "key" value         see LIFT below (state, flags, position, period_ms, ...)
+#   tlm_bms_set "key" value          see BMS below (period_ms, ...)
+#   (the aux stubs record every frame the image puts on CAN2 or CAN3: none is allowed at all)
+#   tlm_throttle_start ms            virtual time may not run ahead of wall time by more than one
+#                                    slice of ms (micro-ROS scenarios: the agent runs in wall time)
+#   tlm_time_report                  print one "TLM_TIME {json}" line: virtual and wall time
+#   tlm_stub_clock                   install the SystemCoreClock hook again (after "machine Reset",
+#                                    which drops bus hooks: see renode_telemetry.reset_steps)
+#   tlm_stub_cpu_report              print one "TLM_CPU {json}" line: executed instructions,
+#                                    virtual time and the CPU's MIPS setting
 from Antmicro.Renode.Core import EmulationManager
 from Antmicro.Renode.Core.CAN import CANMessageFrame
 from Antmicro.Renode.Core.Structure import NullRegistrationPoint
@@ -52,6 +63,101 @@ CONFIG = {
 }
 
 
+# CTL-017 stub (openamr-upperbody-fw PR #17 dictionary, node 0x10): heartbeat 0x710, TPDO1 0x190,
+# TPDO2 0x290 every period_ms, EMCY 0x090 on request. Values are test inputs.
+LIFT = {"node": 0x10, "period_ms": 100, "hb_ms": 100, "nmt": 0x05, "state": 3, "flags": 0x03,
+        "position": 5000, "active_stop": 0, "velocity": 0, "current_ma": 0, "faults": 0, "aux": 0,
+        "skip_counter": 0, "silent": 0}
+# Daly stub: one 0x90 SOC frame from BMS 0x01 to host 0x40 every period_ms (daly_rx.h layout).
+BMS = {"period_ms": 200, "bms": 0x01, "host": 0x40, "pack_dv": 256, "current_raw": 30000, "soc_pm": 800,
+       "silent": 0}
+
+
+class AuxStub(ICAN):
+    """A node on CAN2 or CAN3 that only sends. Every frame it receives came from the image."""
+
+    def __init__(self, machine, name):
+        self.machine = machine
+        self.name = name
+        self.handlers = []
+        self.received = []
+        self.frames_sent = 0
+        self.generation = 0
+
+    def add_FrameSent(self, handler):
+        self.handlers.append(handler)
+
+    def remove_FrameSent(self, handler):
+        self.handlers.remove(handler)
+
+    def Reset(self):
+        pass
+
+    def OnFrameReceived(self, frame):
+        self.received.append("%s id 0x%X data %s" % (self.name, frame.Id, " ".join("%02X" % int(b) for b in frame.Data)))
+
+    def transmit(self, can_id, data, extended=False):
+        self.frames_sent += 1
+        frame = CANMessageFrame(can_id, Array[Byte](data), extended, False)
+        for handler in list(self.handlers):
+            handler(frame)
+
+    def every(self, ms, fn):
+        self.generation += 1
+        generation = self.generation
+
+        def run():
+            if generation != self.generation:
+                return
+            fn()
+            self.machine.ScheduleAction(TimeInterval.FromMicroseconds(UInt64(ms * 1000)),
+                                        Action[TimeInterval](lambda _ts: run()))
+        self.machine.ScheduleAction(TimeInterval.FromMicroseconds(UInt64(ms * 1000)),
+                                    Action[TimeInterval](lambda _ts: run()))
+
+
+class LiftStub(AuxStub):
+    def __init__(self, machine):
+        AuxStub.__init__(self, machine, "can3")
+        self.counter = 0
+        self.tpdo1 = 0
+
+    def start(self):
+        def tick():
+            if LIFT["silent"]:
+                return
+            n = LIFT["node"]
+            self.transmit(0x700 + n, [LIFT["nmt"]])
+            p = LIFT["position"] & 0xFFFF
+            v = LIFT["velocity"] & 0xFFFF
+            self.counter = (self.counter + 1 + (1 if LIFT["skip_counter"] else 0)) & 0xFF
+            LIFT["skip_counter"] = 0
+            self.tpdo1 += 1
+            self.transmit(0x180 + n, [LIFT["state"], LIFT["flags"], p & 0xFF, p >> 8, LIFT["active_stop"], 0, 0xFF,
+                                      self.counter])
+            c = LIFT["current_ma"] & 0xFFFF
+            self.transmit(0x280 + n, [0x10, 0xFF, c & 0xFF, c >> 8, v & 0xFF, v >> 8, LIFT["faults"] & 0xFF,
+                                      LIFT["aux"] & 0xFF])
+        self.every(LIFT["period_ms"], tick)
+
+
+class BmsStub(AuxStub):
+    def __init__(self, machine):
+        AuxStub.__init__(self, machine, "can2")
+
+    def start(self):
+        def tick():
+            if BMS["silent"]:
+                return
+            ident = (0x18 << 24) | (0x90 << 16) | (BMS["host"] << 8) | BMS["bms"]
+            pv, cur, soc = BMS["pack_dv"], BMS["current_raw"], BMS["soc_pm"]
+            self.transmit(ident, [pv >> 8, pv & 0xFF, 0, 0, cur >> 8, cur & 0xFF, soc >> 8, soc & 0xFF], True)
+        self.every(BMS["period_ms"], tick)
+
+
+AUX = {}
+
+
 class DriveStub(ICAN):
     def __init__(self, machine):
         self.machine = machine
@@ -66,6 +172,7 @@ class DriveStub(ICAN):
         self.burst_generation = 0
         self.frames_sent = 0     # every frame the stub put on the hub
         self.feeders = {}
+        self.clock_hooks = 1     # hook installs: 1 at attach, +1 per tlm_stub_clock
 
     # ---- ICAN ----
     def add_FrameSent(self, handler):
@@ -130,8 +237,10 @@ class DriveStub(ICAN):
         def bootup():
             if generation == self.hb_generation and not CONFIG["silent"]:
                 self.transmit(0x700 + CONFIG["node"], [0x00])
-        # Sent from the machine's time domain (1 ms later), like every other frame of the stub.
-        self.after(1000, bootup)
+        # Sent from the machine's time domain, like every other frame of the stub: 50 ms after the
+        # stub starts (a boot-up sent before the image has started FDCAN1 is not received; the
+        # image's start-up initialises FDCAN1, FDCAN2 and FDCAN3 first), 1 ms after a restart.
+        self.after(50000 if self.hb_generation == 1 else 1000, bootup)
 
         def beat():
             if generation != self.hb_generation or CONFIG["silent"] or CONFIG["heartbeat_ms"] <= 0:
@@ -226,6 +335,63 @@ def _calibrate_systick(machine):
                           BusHookDelegate(on_write))
 
 
+def mc_tlm_stub_clock():
+    # "machine Reset" drops bus hooks and puts the NVIC model back to its default SysTick
+    # frequency; the image writes SystemCoreClock again while it boots, so the hook is installed
+    # again before the machine runs (the caller pauses first).
+    STUB[0].clock_hooks += 1
+    _calibrate_systick(_machine())
+
+
+def mc_tlm_stub_cpu_report():
+    machine = _machine()
+    cpu = machine["sysbus.cpu"]
+    virtual_s = machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds
+    print 'TLM_CPU {"instructions":%d,"virtual_s":%.6f,"mips":%d}' % (
+        int(cpu.ExecutedInstructions), virtual_s, int(cpu.PerformanceInMips))
+
+
+THROTTLE = {"generation": 0, "slice_us": 5000, "virtual_us": 0, "wall": None, "watch": None, "virtual_at_start": 0.0}
+
+
+def mc_tlm_throttle_start(slice_ms):
+    # Every slice of virtual time takes at least the same slice of wall time: the emulation thread
+    # sleeps at the end of a slice that ran faster. Renode may run slower than wall time, never
+    # faster by more than one slice. Scheduled actions do not survive "machine Reset".
+    from System.Diagnostics import Stopwatch
+    from System.Threading import Thread
+    machine = _machine()
+    THROTTLE["generation"] += 1
+    generation = THROTTLE["generation"]
+    THROTTLE["slice_us"] = int(slice_ms) * 1000
+    watch = Stopwatch.StartNew()
+    if THROTTLE["wall"] is None:
+        THROTTLE["wall"] = Stopwatch.StartNew()
+
+    def tick(_ts):
+        if generation != THROTTLE["generation"]:
+            return
+        THROTTLE["virtual_us"] += THROTTLE["slice_us"]
+        ahead_ms = THROTTLE["slice_us"] / 1000 - watch.ElapsedMilliseconds
+        if ahead_ms > 0:
+            Thread.Sleep(int(ahead_ms))
+        watch.Restart()
+        machine.ScheduleAction(TimeInterval.FromMicroseconds(UInt64(THROTTLE["slice_us"])), Action[TimeInterval](tick))
+    machine.ScheduleAction(TimeInterval.FromMicroseconds(UInt64(THROTTLE["slice_us"])), Action[TimeInterval](tick))
+
+
+def mc_tlm_time_report():
+    machine = _machine()
+    if THROTTLE["wall"] is None:
+        from System.Diagnostics import Stopwatch
+        THROTTLE["wall"] = Stopwatch.StartNew()   # first call starts the wall clock
+        THROTTLE["virtual_at_start"] = machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds
+    wall = THROTTLE["wall"]
+    print 'TLM_TIME {"virtual_s":%.6f,"wall_s":%.6f}' % (
+        machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds - THROTTLE.get("virtual_at_start", 0.0),
+        wall.ElapsedMilliseconds / 1000.0)
+
+
 def mc_tlm_stub_set(key, value):
     if key not in CONFIG:
         raise Exception("unknown stub setting " + key)
@@ -265,9 +431,48 @@ def mc_tlm_stub_mb7060(uart_name, period_ms, range_cm):
     STUB[0].feed(uart_name, int(period_ms), [ord(c) for c in "R%03d\r" % int(range_cm)])
 
 
+def mc_tlm_aux_attach(bms_hub, lift_hub):
+    emulation = EmulationManager.Instance.CurrentEmulation
+    machine = _machine()
+    for key, cls, hub_name in (("bms", BmsStub, bms_hub), ("lift", LiftStub, lift_hub)):
+        found, hub = emulation.ExternalsManager.TryGetByName[CANHub](hub_name)
+        if not found:
+            raise Exception("no CAN hub named " + hub_name)
+        stub = cls(machine)
+        machine.SystemBus.Register(stub, NullRegistrationPoint.Instance)
+        machine.SetLocalName(stub, key + "Stub")
+        hub.AttachTo(stub)
+        AUX[key] = stub
+        stub.start()
+
+
+def mc_tlm_aux_restart():
+    # Scheduled actions do not survive "machine Reset": start the periodic frames again.
+    for stub in AUX.values():
+        stub.start()
+
+
+def mc_tlm_lift_set(key, value):
+    if key not in LIFT:
+        raise Exception("unknown lift stub setting " + key)
+    LIFT[key] = int(value)
+
+
+def mc_tlm_bms_set(key, value):
+    if key not in BMS:
+        raise Exception("unknown BMS stub setting " + key)
+    BMS[key] = int(value)
+
+
 def mc_tlm_stub_report():
+    for key in ("bms", "lift"):
+        if key in AUX:
+            a = AUX[key]
+            print 'TLM_AUX {"bus":"%s","frames_sent":%d,"received":%d}' % (a.name, a.frames_sent, len(a.received))
+            for v in a.received[:20]:
+                print "TLM_STUB_VIOLATION " + v
     s = STUB[0]
-    print 'TLM_STUB {"requests":%d,"responses":%d,"heartbeats":%d,"frames_sent":%d,"violations":%d}' % (
-        s.requests, s.responses, s.heartbeats, s.frames_sent, len(s.violations))
+    print 'TLM_STUB {"requests":%d,"responses":%d,"heartbeats":%d,"frames_sent":%d,"violations":%d,"clock_hooks":%d}' % (
+        s.requests, s.responses, s.heartbeats, s.frames_sent, len(s.violations), s.clock_hooks)
     for v in s.violations[:20]:
         print "TLM_STUB_VIOLATION " + v

@@ -9,7 +9,7 @@
  * main() in tlm_main.c.
  *
  * What this image does NOT take from the generated main():
- *   - MX_FDCAN2_Init, MX_FDCAN3_Init, MX_SPI4_Init, MX_ETH_Init: not used here;
+ *   - MX_SPI4_Init, MX_ETH_Init: not used here;
  *   - the USER CODE 2 block that turns PE1 into the LD2 lamp output: this
  *     image switches no lamp. PE1 is only released from UART8_TX.
  */
@@ -33,6 +33,8 @@ uint32_t tlm_board_init(void)
      * driven low and stay low; this image never pulses them. */
     MX_GPIO_Init();
     MX_FDCAN1_Init();
+    MX_FDCAN2_Init(); /* CAN2, Daly BMS: receive only (tlm_can_aux.c) */
+    MX_FDCAN3_Init(); /* CAN3, CTL-017 lift: receive only (tlm_can_aux.c) */
     MX_UART4_Init();
     MX_UART5_Init();
     MX_UART7_Init();

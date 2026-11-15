@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# micro-ROS client of the TelemetryUros preset: every source repository, at a pinned commit.
+# Read by uros/build_libmicroros.sh at configure time; nothing here is vendored.
+# Columns: workspace  name  url  commit  (branch the commit was taken from, 15 Nov 2026)
+# Repository set: micro_ros_setup jazzy ed45678c (config/generate_lib) reduced to what a C client
+# with std_msgs and sensor_msgs publishers needs; ROS 2 repositories from ros2/ros2 jazzy ros2.repos.
+dev ament/ament_cmake https://github.com/ament/ament_cmake.git b465a29f21842fcfb5eb70c61a02deb9543a6299 # jazzy
+dev ament/ament_package https://github.com/ament/ament_package.git ee3c5eda4fbc4df2c7a135d0ac1385e4a53fa0ee # jazzy
+dev ament/ament_index https://github.com/ament/ament_index.git 2ccdcb8fd19a364fc793273b5793459207a440b9 # jazzy
+dev ros2/ament_cmake_ros https://github.com/ros2/ament_cmake_ros.git 5b77a227b940a25be5224d78d37591c8baccd756 # jazzy
+dev ament/ament_lint https://github.com/ament/ament_lint.git 9121ac787058642730206a52daba614f9c86b0fb # jazzy
+mcu ros2/rmw https://github.com/ros2/rmw.git 8cb94a87cf3f4049abe2d563af893517bf336930 # jazzy
+mcu ros2/rmw_implementation https://github.com/ros2/rmw_implementation.git 16201bff9bc198c8820cc2dfd19c1163204057c9 # jazzy
+mcu ros2/rosidl_defaults https://github.com/ros2/rosidl_defaults.git 9749b5919add7e5960cd931ec547d45f06bd0025 # jazzy
+mcu ros2/rosidl https://github.com/ros2/rosidl.git 9bcfabf3eddf8e63fb4332dca6da7ec6f3140d65 # jazzy
+mcu ros2/common_interfaces https://github.com/ros2/common_interfaces.git a941f14bb318d8d904505ed935ccbb97f24a70a4 # jazzy
+mcu ros2/rcl_interfaces https://github.com/ros2/rcl_interfaces.git 7aa3caf43377ea6ad615bc1040832e2c7566bfbe # jazzy
+mcu ros2/unique_identifier_msgs https://github.com/ros2/unique_identifier_msgs.git 901599ee92c2ee949f42a5c5d821c92b3e515d69 # jazzy
+mcu ros2/rcl_logging https://github.com/ros2/rcl_logging.git 727920c2592be6deb6983f0fe1b57cbc929cbb70 # jazzy
+mcu ros2/rosidl_core https://github.com/ros2/rosidl_core.git c6eb22b0e77cf57b19e9c6ffd114a00749404215 # jazzy
+mcu ros2/ros2_tracing https://github.com/ros2/ros2_tracing.git 6db8041ca74bfe25b748ca194f3fa4048f9f2df7 # jazzy
+mcu ros2/rosidl_dynamic_typesupport https://github.com/ros2/rosidl_dynamic_typesupport.git cb8c54d12c678daa70410bb0626ed8626f561e45 # jazzy
+mcu eProsima/Micro-CDR https://github.com/eProsima/Micro-CDR.git ed4fd513a24a53b93d548d342cb7aa0a18716f04 # ros2
+mcu eProsima/Micro-XRCE-DDS-Client https://github.com/eProsima/Micro-XRCE-DDS-Client.git 83f129a80770a09aac9e823896ecbf6a0eddf0fc # ros2
+mcu uros/rcl https://github.com/micro-ROS/rcl.git 93026ef7d1a5df3591cd04c062b6623a6ea2f32e # jazzy
+mcu uros/rclc https://github.com/ros2/rclc.git 45ef3de567588652c7f05017a91ea29921dd6862 # jazzy
+mcu uros/micro_ros_utilities https://github.com/micro-ROS/micro_ros_utilities.git 9f35a036f5c87595c03673598be1615ded620f6d # jazzy
+mcu uros/rcutils https://github.com/micro-ROS/rcutils.git c002e3c66241525a24ae6c2a35c4830761c5d280 # jazzy
+mcu uros/micro_ros_msgs https://github.com/micro-ROS/micro_ros_msgs.git b1ef85201e5545d3e07b73f4628bb15836062573 # jazzy
+mcu uros/rmw_microxrcedds https://github.com/micro-ROS/rmw-microxrcedds.git cbc4a1e60aeafd051a7c1636045653d5df425f98 # jazzy
+mcu uros/rosidl_typesupport https://github.com/micro-ROS/rosidl_typesupport.git 352f208e29f33d7a5e78f4aec38ac0056d9ff23e # jazzy
+mcu uros/rosidl_typesupport_microxrcedds https://github.com/micro-ROS/rosidl_typesupport_microxrcedds.git 9672e11175e616bc3fb7449288d0868ab36419bf # jazzy

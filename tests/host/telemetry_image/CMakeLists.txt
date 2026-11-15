@@ -32,6 +32,13 @@ target_include_directories(test_can1_tx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/stub
 target_compile_options(test_can1_tx PRIVATE ${WARN})
 add_test(NAME test_can1_tx COMMAND test_can1_tx)
 
+# The CAN2/CAN3 gate, linked with the CAN1 gate and the same recording stub.
+add_executable(test_can_aux_tx test_can_aux_tx.c ${IMG}/src/tlm_can_aux_tx.c ${IMG}/src/tlm_can1_tx.c)
+target_include_directories(test_can_aux_tx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/stub
+                           ${CMAKE_CURRENT_SOURCE_DIR} ${INC})
+target_compile_options(test_can_aux_tx PRIVATE ${WARN})
+add_test(NAME test_can_aux_tx COMMAND test_can_aux_tx)
+
 add_executable(test_uart_rx test_uart_rx.c ${IMG}/src/tlm_uart_rx.c ${IMG}/src/tlm_sched.c)
 target_include_directories(test_uart_rx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INC})
 target_compile_options(test_uart_rx PRIVATE ${WARN})
@@ -41,3 +48,11 @@ add_executable(test_format test_format.c ${IMG}/src/tlm_format.c)
 target_include_directories(test_format PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INC})
 target_compile_options(test_format PRIVATE ${WARN})
 add_test(NAME test_format COMMAND test_format)
+
+# Pure parts of the micro-ROS client: state machine, arena, published values.
+add_executable(test_uros test_uros.c ${IMG}/src/tlm_uros_sm.c ${IMG}/src/tlm_uros_alloc.c
+               ${IMG}/src/tlm_uros_msg.c ${IMG}/src/tlm_format.c)
+target_include_directories(test_uros PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INC})
+target_compile_options(test_uros PRIVATE ${WARN} -Wno-float-equal)
+target_link_libraries(test_uros PRIVATE m)
+add_test(NAME test_uros COMMAND test_uros)
