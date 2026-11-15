@@ -70,3 +70,10 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
 )
+
+# Post-link guard (tools/ci/simref_symbol_guard.cmake): the build fails if a symbol of the
+# SIMULATION ONLY reference is in the ELF. It reads the ELF and adds nothing to it.
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -DELF=$<TARGET_FILE:${CMAKE_PROJECT_NAME}> -DNM=${CMAKE_NM}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/../../../tools/ci/simref_symbol_guard.cmake
+    VERBATIM)

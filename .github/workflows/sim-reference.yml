@@ -1,0 +1,111 @@
+# SIMULATION ONLY. Not production firmware. Not reviewed for safety. Must not be linked into any board image.
+#
+# Simulation reference of the base controller's safety and motion logic (tests/sim_reference),
+# written under the platform lead's decision of 15 Nov 2026. Host builds only; no job flashes a
+# board, opens a physical CAN interface or drives a safety output. Every result is development
+# evidence, never safety evidence.
+name: sim-reference
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: host (${{ matrix.cc }}, sanitizers, -Werror)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build python3-pytest python3-yaml clang libclang-rt-18-dev
+      - name: Configure, build and test tests/sim_reference
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          cmake -S tests/sim_reference -B build/simref -G Ninja -DSIMREF_SANITIZE=ON
+          cmake --build build/simref
+          ctest --test-dir build/simref --output-on-failure --no-tests=error
+      - name: Check test counts (a suite that runs zero tests fails)
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          for name, minimum in (("build/simref/adapter.xml", 150), ("build/simref/guards.xml", 9)):
+              root = ET.parse(name).getroot()
+              s = root if root.tag == "testsuite" else root.find("testsuite")
+              tests, skipped = int(s.get("tests")), int(s.get("skipped"))
+              failed = int(s.get("failures")) + int(s.get("errors"))
+              print(f"{name}: {tests} tests, {skipped} skipped, {failed} failed")
+              assert tests >= minimum and skipped == 0 and failed == 0, name
+          PY
+      - name: Adapter report (model against C, every vector)
+        run: SIMREF_ADAPTER_LIB=build/simref/libsimref_adapter.so python3 tests/sim_reference/adapter/simref_adapter.py
+      - name: Non-default interpretation options compile (not tested against the model)
+        run: |
+          for opt in SIMREF_OPT_C1_DRIVE_TIMING_SIDE_B=0 SIMREF_OPT_C2_STOPPED_BY_TWIST=0 SIMREF_OPT_C3_WCM_BLOCKS_RUN=1 \
+                     SIMREF_OPT_C4_RESUME_REJECT_STAYS_INHIBITED=0 SIMREF_OPT_C5_INTERLOCK_ONLY_IN_ATTEMPT=0 \
+                     SIMREF_OPT_C6_DRIVE_FAULT_IN_CHARGING_STAYS=0 SIMREF_OPT_C8_STOWED_ONLY=0 \
+                     SIMREF_OPT_TICK_APPLICABILITY_CURRENT_STATE=0 SIMREF_OPT_TICK_ORDER_STABLE_OTHERS=0 \
+                     SIMREF_OPT_CONTACTOR_MISMATCH_EVENT=2; do
+            cmake -S tests/sim_reference -B "build/opt-$opt" -G Ninja -DSIMREF_SANITIZE=OFF "-DSIMREF_OPTION_DEFINES=$opt" > /dev/null
+            cmake --build "build/opt-$opt" --target simref simref_process
+            echo "compiled with $opt"
+          done
+      - name: Existing tests still pass (spec model and vectors, CANopen host tests)
+        if: matrix.cc == 'gcc'
+        run: |
+          python3 -m pytest tests/spec -q -p no:cacheprovider
+          cmake -S tests/host/canopen -B build/host-canopen -G Ninja
+          cmake --build build/host-canopen
+          ctest --test-dir build/host-canopen --output-on-failure --no-tests=error
+
+  boards:
+    name: board targets with the simref_ post-link guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install the Arm toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi
+          arm-none-eabi-gcc --version | head -1
+      - name: STM32H723 Debug and Release (guard must pass)
+        working-directory: boards/stm32/OpenAMRobot
+        run: |
+          for p in Debug Release; do
+            cmake --preset "$p" -B "$GITHUB_WORKSPACE/build/stm32-$p"
+            cmake --build "$GITHUB_WORKSPACE/build/stm32-$p" 2>&1 | tee "$GITHUB_WORKSPACE/build/stm32-$p.log"
+            grep -q "simref symbol guard: .*no simref_ symbol" "$GITHUB_WORKSPACE/build/stm32-$p.log"
+          done
+      - name: Negative test, a simref_ symbol injected into the board ELF must fail the build
+        working-directory: boards/stm32/OpenAMRobot
+        run: |
+          cmake --preset Debug -B "$GITHUB_WORKSPACE/build/stm32-poison" \
+            "-DCMAKE_PROJECT_OpenAMRobot_INCLUDE=$GITHUB_WORKSPACE/tests/sim_reference/guard_test/poison_board.cmake"
+          if cmake --build "$GITHUB_WORKSPACE/build/stm32-poison" > "$GITHUB_WORKSPACE/build/poison.log" 2>&1; then
+            cat "$GITHUB_WORKSPACE/build/poison.log"
+            echo "::error::the poisoned board build passed; the guard did not fire"
+            exit 1
+          fi
+          grep "simulation-reference symbol" -A2 "$GITHUB_WORKSPACE/build/poison.log"
+          grep -q "simref_poison_marker" "$GITHUB_WORKSPACE/build/poison.log"
+          echo "guard fired as required"
+      - name: The reference refuses to configure with the board toolchain
+        run: |
+          if cmake -S tests/sim_reference -B build/simref-arm \
+               -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/boards/stm32/OpenAMRobot/cmake/gcc-arm-none-eabi.cmake" > build/arm.log 2>&1; then
+            cat build/arm.log; exit 1
+          fi
+          grep "SIMULATION ONLY: tests/sim_reference refuses" build/arm.log
