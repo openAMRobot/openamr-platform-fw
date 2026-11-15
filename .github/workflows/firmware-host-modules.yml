@@ -2,26 +2,15 @@ name: Firmware host modules
 
 # Builds and runs every portable firmware module test project found under tests/host/<name>/
 # (one CMake project per module, warnings as errors, ASan and UBSan as each project sets them)
-# and the specification checks under tests/spec. A branch without these folders passes with
-# "nothing to run", so the job can be a required check.
+# and the specification checks under tests/spec. The workflow runs on every pull request (no
+# path filter), so it can be a required check. A branch with no C sources under firmware/ and
+# no test project passes with "nothing to run". A branch that has C sources under firmware/
+# and no tests/host project fails: a pass with zero tests is not evidence.
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - "firmware/**"
-      - "tests/host/**"
-      - "tests/spec/**"
-      - "tools/spec/**"
-      - "docs/safety/spec/**"
-      - ".github/workflows/firmware-host-modules.yml"
   push:
     branches: [main]
-    paths:
-      - "firmware/**"
-      - "tests/host/**"
-      - "tests/spec/**"
-      - "tools/spec/**"
-      - "docs/safety/spec/**"
 
 permissions:
   contents: read
@@ -59,7 +48,15 @@ jobs:
             echo "::endgroup::"
             echo "- \`$name\`: $(grep -E 'tests passed' "build/host/$name.ctest" | tail -1)" >> "$GITHUB_STEP_SUMMARY"
           done
-          [ "$found" = 1 ] || echo "- no tests/host projects on this branch: nothing to run" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$found" = 0 ]; then
+            sources=$(find firmware -name '*.c' 2>/dev/null | wc -l)
+            if [ "$sources" -gt 0 ]; then
+              echo "::error::firmware/ has $sources C source files and no tests/host project"
+              echo "- FAIL: $sources C source files under firmware/ and no tests/host project" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "- no C sources under firmware/ and no tests/host projects: nothing to run" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Specification checks
         run: |
