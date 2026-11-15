@@ -62,6 +62,16 @@ void vApplicationGetIdleTaskMemory(StaticTask_t **tcb, StackType_t **stack,
     *depth = configMINIMAL_STACK_SIZE;
 }
 
+/* Idle: the processor sleeps until the next interrupt (SysTick, FDCAN, a UART) instead of
+ * spinning. WFI only stops the core clock; no peripheral, clock or output is changed, and every
+ * interrupt that wakes it is one that would have preempted the idle loop anyway. The DSB lets
+ * outstanding memory accesses finish first (ARM Cortex-M7 programming manual, WFI). */
+void vApplicationIdleHook(void)
+{
+    __DSB();
+    __WFI();
+}
+
 void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
 {
     (void)task;

@@ -25,6 +25,10 @@
 #   tlm_stub_mb7060 "sysbus.uart4" period_ms range_cm                (0 ms = stop)
 #   tlm_stub_uart_burst "sysbus.usart2" frames distance_cm strength  TF-Luna frames back to back, now
 #   tlm_stub_report                  print one "TLM_STUB {json}" line
+#   tlm_stub_clock                   install the SystemCoreClock hook again (after "machine Reset",
+#                                    which drops bus hooks: see renode_telemetry.reset_steps)
+#   tlm_stub_cpu_report              print one "TLM_CPU {json}" line: executed instructions,
+#                                    virtual time and the CPU's MIPS setting
 from Antmicro.Renode.Core import EmulationManager
 from Antmicro.Renode.Core.CAN import CANMessageFrame
 from Antmicro.Renode.Core.Structure import NullRegistrationPoint
@@ -66,6 +70,7 @@ class DriveStub(ICAN):
         self.burst_generation = 0
         self.frames_sent = 0     # every frame the stub put on the hub
         self.feeders = {}
+        self.clock_hooks = 1     # hook installs: 1 at attach, +1 per tlm_stub_clock
 
     # ---- ICAN ----
     def add_FrameSent(self, handler):
@@ -226,6 +231,22 @@ def _calibrate_systick(machine):
                           BusHookDelegate(on_write))
 
 
+def mc_tlm_stub_clock():
+    # "machine Reset" drops bus hooks and puts the NVIC model back to its default SysTick
+    # frequency; the image writes SystemCoreClock again while it boots, so the hook is installed
+    # again before the machine runs (the caller pauses first).
+    STUB[0].clock_hooks += 1
+    _calibrate_systick(_machine())
+
+
+def mc_tlm_stub_cpu_report():
+    machine = _machine()
+    cpu = machine["sysbus.cpu"]
+    virtual_s = machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds
+    print 'TLM_CPU {"instructions":%d,"virtual_s":%.6f,"mips":%d}' % (
+        int(cpu.ExecutedInstructions), virtual_s, int(cpu.PerformanceInMips))
+
+
 def mc_tlm_stub_set(key, value):
     if key not in CONFIG:
         raise Exception("unknown stub setting " + key)
@@ -267,7 +288,7 @@ def mc_tlm_stub_mb7060(uart_name, period_ms, range_cm):
 
 def mc_tlm_stub_report():
     s = STUB[0]
-    print 'TLM_STUB {"requests":%d,"responses":%d,"heartbeats":%d,"frames_sent":%d,"violations":%d}' % (
-        s.requests, s.responses, s.heartbeats, s.frames_sent, len(s.violations))
+    print 'TLM_STUB {"requests":%d,"responses":%d,"heartbeats":%d,"frames_sent":%d,"violations":%d,"clock_hooks":%d}' % (
+        s.requests, s.responses, s.heartbeats, s.frames_sent, len(s.violations), s.clock_hooks)
     for v in s.violations[:20]:
         print "TLM_STUB_VIOLATION " + v
