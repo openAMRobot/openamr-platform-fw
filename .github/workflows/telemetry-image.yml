@@ -93,6 +93,7 @@ jobs:
       - name: C host tests (-Werror, ASan + UBSan); zero tests fails
         run: |
           set -o pipefail
+          mkdir -p build
           for suite in sensors canopen telemetry_image; do
             cmake -S "tests/host/$suite" -B "build/host-$suite" -G Ninja
             cmake --build "build/host-$suite"
@@ -135,6 +136,7 @@ jobs:
       - name: Run every scenario; a failed, skipped or blocked one fails the job
         run: |
           set -o pipefail
+          mkdir -p build
           python3 tools/ci/renode_telemetry.py --renode "$RUNNER_TEMP/renode/renode" \
             --elf-test elf/RenodeTest/build/RenodeTest/telemetry_image.elf \
             --elf-default elf/Debug/build/Debug/telemetry_image.elf \
