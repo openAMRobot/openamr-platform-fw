@@ -120,9 +120,9 @@ the console (port reopened, cable replugged, host restarted), and whenever it se
 characters with the newline). The rarely changing fields are in a slow line that follows the
 status line of every 5th period and is capped at 35 % (403); a period that carries both stays at or
 below 95 % of the wire time. The slow line has two parts that alternate, so each is refreshed once
-per second: `cfg` (seq 0, 10, 20, ...) and `diag` (seq 5, 15, ...). Lines captured in Renode: status
-lines 560 to 575 characters, slow lines 330 to 370 (host test `test_format.c` builds a day-long
-bad-bus line of 687). A line that does not fit its cap is never cut: it is replaced by
+per second: `cfg` (seq 0, 10, 20, ...) and `diag` (seq 5, 15, ...). Lines captured in the eleven Renode
+scenarios: status lines 535 to 614 characters, slow lines 193 to 316 (host test `test_format.c`
+builds a day-long bad-bus status line of 687 and leaves counters out with `cnt_more`). A line that does not fit its cap is never cut: it is replaced by
 `{"t":"err",...,"e":"line_overflow"}` (or `"slow_overflow"` with `"of":"sl"`) and counted
 (`too_long`). A line that cannot leave within one period is dropped and counted (`dropped`), a late
 period is counted (`overrun`).
