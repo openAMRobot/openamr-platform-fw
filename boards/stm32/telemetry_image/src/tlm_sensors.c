@@ -7,7 +7,14 @@
  *   USART2, USART6              -> TF-Luna parser (115200 8N1)
  *
  * The UART interrupt (generated handler, HAL_UART_IRQHandler) stores each
- * byte in a ring; the sensors task drains the rings and feeds the parsers.
+ * byte in a ring; the sensors task drains the rings and feeds the parsers
+ * (src/tlm_uart_rx.h for the ring and the restart policy).
+ *
+ * Every HAL_UART_Receive_IT call is checked. A call that does not return
+ * HAL_OK is counted and stops the port; the sensors task restarts it with at
+ * most TLM_UART_RX_RESTART_MAX failed attempts in a row and then reports the
+ * port failed. A full ring discards that port's buffered bytes, resets its
+ * parser and counts the loss; the parser resynchronises on the next header.
  *
  * This image sends no MB7060 trigger pulse. The parser accepts a frame as a
  * sample only while armed by a trigger, so it is never armed here: every
@@ -24,20 +31,20 @@
 #include "oamr/mb7060.h"
 #include "oamr/tfluna.h"
 #include "tlm.h"
+#include "tlm_uart_rx.h"
 
 extern UART_HandleTypeDef huart4, huart5, huart7, huart8, huart2, huart6; /* generated main.c */
 
 #define N_PORTS (TLM_N_MB7060 + TLM_N_TFLUNA)
 
-typedef struct {
+typedef struct
+{
     UART_HandleTypeDef *huart;
     const char *name;
     uint8_t rx_byte;
-    uint8_t ring[TLM_UART_RING_SIZE];
-    volatile uint32_t head; /* written by the interrupt */
-    volatile uint32_t tail; /* written by the task */
+    tlm_ring_t ring;
+    tlm_uart_rx_t rx;
     volatile uint32_t errors;
-    volatile uint32_t overflows;
     volatile bool flush; /* a UART error happened: drop the partial frame */
 } port_t;
 
@@ -65,52 +72,72 @@ static SemaphoreHandle_t s_lock;
 /* ---- interrupt side ---- */
 static port_t *port_of(const UART_HandleTypeDef *huart)
 {
-    for (unsigned i = 0u; i < N_PORTS; i++) {
-        if (s_port[i].huart == huart) {
+    for (unsigned i = 0u; i < N_PORTS; i++)
+    {
+        if (s_port[i].huart == huart)
+        {
             return &s_port[i];
         }
     }
     return 0;
 }
 
+/* Re-arm reception for the next byte; a failure stops the port. */
+static void rearm(port_t *p)
+{
+    if (HAL_UART_Receive_IT(p->huart, &p->rx_byte, 1u) != HAL_OK)
+    {
+        tlm_uart_rx_lost(&p->rx);
+    }
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     port_t *p = port_of(huart);
-    if (p == 0) {
+    if (p == 0)
+    {
         return;
     }
-    const uint32_t next = (p->head + 1u) % TLM_UART_RING_SIZE;
-    if (next == p->tail) {
-        p->overflows++;
-        p->flush = true;
-    } else {
-        p->ring[p->head] = p->rx_byte;
-        p->head = next;
-    }
-    (void)HAL_UART_Receive_IT(huart, &p->rx_byte, 1u);
+    tlm_ring_put(&p->ring, p->rx_byte);
+    rearm(p);
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     port_t *p = port_of(huart);
-    if (p == 0) {
+    if (p == 0)
+    {
         return;
     }
     p->errors++;
     p->flush = true;
-    (void)HAL_UART_Receive_IT(huart, &p->rx_byte, 1u); /* busy when reception went on */
+    /* After a blocking error (overrun, framing, noise) the HAL has ended the
+     * reception and the port must be re-armed; after a non-blocking one the
+     * reception goes on and must not be started twice. */
+    if (huart->RxState == HAL_UART_STATE_READY)
+    {
+        rearm(p);
+    }
 }
 
 /* ---- task side ---- */
 void tlm_sensors_init(void)
 {
     s_lock = xSemaphoreCreateMutexStatic(&s_lock_cb);
-    for (unsigned i = 0u; i < TLM_N_MB7060; i++) {
+    for (unsigned i = 0u; i < N_PORTS; i++)
+    {
+        tlm_ring_init(&s_port[i].ring);
+        tlm_uart_rx_init(&s_port[i].rx, (uint8_t)TLM_UART_RX_RESTART_MAX);
+    }
+    for (unsigned i = 0u; i < TLM_N_MB7060; i++)
+    {
         oamr_mb_init(&s_mb[i]); /* not armed, and never armed in this image */
     }
-    for (unsigned i = 0u; i < TLM_N_TFLUNA; i++) {
+    for (unsigned i = 0u; i < TLM_N_TFLUNA; i++)
+    {
         const oamr_tfl_config_t cfg = {
-            .unit = (TLM_TFLUNA_UNIT_SET != 0) ? (oamr_tfl_unit_t)TLM_TFLUNA_UNIT : OAMR_TFL_UNIT_UNSET,
+            .unit =
+                (TLM_TFLUNA_UNIT_SET != 0) ? (oamr_tfl_unit_t)TLM_TFLUNA_UNIT : OAMR_TFL_UNIT_UNSET,
         };
         const oamr_fresh_config_t fresh = {
             .stale_after_us = (TLM_TFLUNA_STALE_SET != 0) ? TLM_TFLUNA_STALE_US : 0u,
@@ -124,7 +151,8 @@ static void feed_mb(unsigned i, uint8_t byte, uint64_t now_us)
 {
     oamr_mb_sample_t unused;
     const oamr_mb_push_t r = oamr_mb_push(&s_mb[i], byte, &unused);
-    if (r == OAMR_MB_PUSH_UNSOLICITED) {
+    if (r == OAMR_MB_PUSH_UNSOLICITED)
+    {
         /* A well-formed frame arrived. Without a trigger it answers no
          * reading, so only its arrival time is kept, not its range. */
         s_mb_seen[i] = true;
@@ -135,47 +163,80 @@ static void feed_mb(unsigned i, uint8_t byte, uint64_t now_us)
 static void feed_tfl(unsigned i, uint8_t byte, uint64_t now_us)
 {
     oamr_tfl_sample_t smp;
-    if (oamr_tfl_push(&s_tfl[i], byte, &smp) == OAMR_TFL_PUSH_SAMPLE) {
+    if (oamr_tfl_push(&s_tfl[i], byte, &smp) == OAMR_TFL_PUSH_SAMPLE)
+    {
         s_tfl_last[i] = smp;
         s_tfl_seen[i] = true;
         s_tfl_stamp_us[i] = now_us;
-        oamr_fresh_mark(&s_tfl_fresh[i], (uint32_t)now_us);
+        oamr_fresh_mark(&s_tfl_fresh[i], now_us);
+    }
+}
+
+static void reset_parser(unsigned i)
+{
+    if (i < TLM_N_MB7060)
+    {
+        oamr_mb_flush(&s_mb[i]);
+    }
+    else
+    {
+        oamr_tfl_flush(&s_tfl[i - TLM_N_MB7060]);
+    }
+}
+
+/* (Re)start reception of every stopped port; bounded by the policy. */
+static void restart_stopped_ports(void)
+{
+    for (unsigned i = 0u; i < N_PORTS; i++)
+    {
+        port_t *p = &s_port[i];
+        if (!tlm_uart_rx_needs_start(&p->rx))
+        {
+            continue;
+        }
+        /* The UART interrupt (priority 5) is masked here, so it cannot change
+         * the port state between the call and the bookkeeping. */
+        taskENTER_CRITICAL();
+        const bool ok = HAL_UART_Receive_IT(p->huart, &p->rx_byte, 1u) == HAL_OK;
+        tlm_uart_rx_retry_result(&p->rx, ok);
+        taskEXIT_CRITICAL();
     }
 }
 
 void tlm_sensors_task(void *arg)
 {
     (void)arg;
-    for (unsigned i = 0u; i < N_PORTS; i++) {
-        (void)HAL_UART_Receive_IT(s_port[i].huart, &s_port[i].rx_byte, 1u);
-    }
     TickType_t wake = xTaskGetTickCount();
-    for (;;) {
-        (void)xTaskDelayUntil(&wake, pdMS_TO_TICKS(TLM_SENSORS_POLL_MS));
+    for (;;)
+    {
+        restart_stopped_ports();
         const uint64_t now_us = tlm_time_us();
         (void)xSemaphoreTake(s_lock, portMAX_DELAY);
-        for (unsigned i = 0u; i < N_PORTS; i++) {
+        for (unsigned i = 0u; i < N_PORTS; i++)
+        {
             port_t *p = &s_port[i];
-            if (p->flush) {
+            /* Overflow first: what is buffered is discarded, not parsed. */
+            const bool overflowed = tlm_ring_take_overflow(&p->ring);
+            if (overflowed || p->flush)
+            {
                 p->flush = false;
-                /* TF-Luna: drop the partial frame. MB7060: nothing to do, the
-                 * parser restarts at the next 'R' and counts a short frame as
-                 * malformed; no range is used in this image either way. */
-                if (i >= TLM_N_MB7060) {
-                    oamr_tfl_flush(&s_tfl[i - TLM_N_MB7060]);
-                }
+                reset_parser(i);
             }
-            while (p->tail != p->head) {
-                const uint8_t byte = p->ring[p->tail];
-                p->tail = (p->tail + 1u) % TLM_UART_RING_SIZE;
-                if (i < TLM_N_MB7060) {
+            uint8_t byte;
+            while (tlm_ring_get(&p->ring, &byte))
+            {
+                if (i < TLM_N_MB7060)
+                {
                     feed_mb(i, byte, now_us);
-                } else {
+                }
+                else
+                {
                     feed_tfl(i - TLM_N_MB7060, byte, now_us);
                 }
             }
         }
         (void)xSemaphoreGive(s_lock);
+        (void)xTaskDelayUntil(&wake, pdMS_TO_TICKS(TLM_SENSORS_POLL_MS));
     }
 }
 
@@ -198,9 +259,19 @@ void tlm_sensors_snapshot(tlm_sensors_status_t *out, uint64_t now_us)
     (void)xSemaphoreTake(s_lock, portMAX_DELAY);
     out->uart_errors = 0u;
     out->ring_overflows = 0u;
+    out->ring_lost_bytes = 0u;
+    out->rx_start_failures = 0u;
+    out->rx_restarts = 0u;
     for (unsigned i = 0u; i < N_PORTS; i++) {
-        out->uart_errors += s_port[i].errors;
-        out->ring_overflows += s_port[i].overflows;
+        const port_t *p = &s_port[i];
+        out->uart_errors += p->errors;
+        out->ring_overflows += p->ring.ovf_events;
+        out->ring_lost_bytes += tlm_ring_lost(&p->ring);
+        out->rx_start_failures += p->rx.start_failures;
+        out->rx_restarts += p->rx.starts > 0u ? p->rx.starts - 1u : 0u;
+        out->port_name[i] = p->name;
+        out->rx_state[i] = tlm_uart_rx_state_name(p->rx.state);
+        out->rx_failed[i] = p->rx.state == TLM_UART_RX_FAILED;
     }
     for (unsigned i = 0u; i < TLM_N_MB7060; i++) {
         tlm_mb_status_t *m = &out->mb[i];
@@ -236,7 +307,7 @@ void tlm_sensors_snapshot(tlm_sensors_status_t *out, uint64_t now_us)
         }
         /* Valid needs a usable frame AND a freshness verdict. Without a
          * stale limit the verdict is unknown, and so is valid. */
-        switch (oamr_fresh_classify(&s_tfl_fresh[i], (uint32_t)now_us)) {
+        switch (oamr_fresh_classify(&s_tfl_fresh[i], now_us)) {
         case OAMR_FRESH_FRESH:
             t->valid_known = true;
             t->valid = s_tfl_last[i].valid;
