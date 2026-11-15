@@ -45,11 +45,23 @@ The following files are **modified derivatives** of linorobot2 source. Per Apach
 |---|---|---|
 | `boards/teensy_4_0/linorobot2_overlay/src/firmware.ino` | linorobot2 `firmware.ino` | feedforward + dither, runtime encoder-ripple correction table, `/debug/*` telemetry topics (`/debug/tune`, `/debug/openloop`, `/debug/left`, `/debug/right`), bounded open-loop test mode, IMU workaround (MPU6500), CycloneDDS-oriented tweaks |
 | `boards/teensy_4_0/linorobot2_overlay/lib/pid/pid.cpp` | linorobot2 `pid.cpp` | back-calculation anti-windup |
+| `boards/teensy_4_0/linorobot2_overlay/lib/pid/pid.h` | linorobot2 `pid.h` | adds `PID::reset()` (clears integral, derivative and previous error) |
+| `boards/teensy_4_0/linorobot2_overlay/firmware/platformio.ini` | linorobot2 `firmware/platformio.ini` | pins `teensy@5.1.0` and every library to the deployed 2026-06-29 build (#13) |
 | `boards/teensy_4_0/linorobot2_overlay/config/lino_base_config.h` | linorobot2 `lino_base_config.h` | this unit's pins, PID gains (K_P 2.0 / K_I 0.1 / K_D 0.1), MOTOR2_GAIN, measured drivetrain constants, IMU/board selection |
 
 If you redistribute these files (or your own modifications of them), you must keep their
 Apache-2.0 headers, the `Copyright (c) 2021 Juan Miguel Jimeno` notice, and a statement
 of your changes, and include a copy of the Apache-2.0 license (`LICENSE-Apache-2.0`).
+
+## Third-Party Material — PJRC Encoder library (MIT)
+
+- **File:** `boards/teensy_4_0/linorobot2_overlay/lib/encoder/encoder.h`
+- **Origin:** PJRC Encoder library (http://www.pjrc.com/teensy/td_libs_Encoder.html), as vendored
+  in linorobot2_hardware `firmware/lib/encoder/encoder.h` at the pinned commit above
+- **Copyright:** Copyright (c) 2011,2013 PJRC.COM, LLC - Paul Stoffregen
+- **License:** MIT (the full permission notice is kept in the file header)
+- **OpenAMRobot modification:** `getRPM()` uses the period method for low-speed resolution;
+  the change is stated in the file header.
 
 ## Trademarks
 
