@@ -6,8 +6,10 @@
 bool oamr_daly_rx_init(oamr_daly_rx_t *d, const oamr_daly_rx_config_t *cfg)
 {
     memset(d, 0, sizeof(*d));
-    if (cfg == NULL || !cfg->addresses_set || cfg->bms_addr == cfg->host_addr || cfg->n_cells == 0u ||
-        cfg->n_cells > OAMR_DALY_MAX_CELLS || cfg->n_temps == 0u || cfg->n_temps > OAMR_DALY_MAX_TEMPS) {
+    if (cfg == NULL || !cfg->addresses_set || cfg->bms_addr == cfg->host_addr ||
+        cfg->n_cells == 0u || cfg->n_cells > OAMR_DALY_MAX_CELLS || cfg->n_temps == 0u ||
+        cfg->n_temps > OAMR_DALY_MAX_TEMPS)
+    {
         return false;
     }
     d->cfg = *cfg;
@@ -50,28 +52,33 @@ static oamr_daly_rx_result_t malformed(oamr_daly_rx_t *d)
 oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_rx_frame_t *f,
                                             uint32_t now_us)
 {
-    if (!d->configured) {
+    if (!d->configured)
+    {
         return OAMR_DALY_RX_NOT_CONFIGURED;
     }
     const uint32_t addr_mask = 0x1F00FFFFu;
     const uint32_t want = oamr_daly_rx_expected_id(d, 0u);
-    if (!f->extended || (f->id & ~0x1FFFFFFFu) != 0u || (f->id & addr_mask) != want) {
+    if (!f->extended || (f->id & ~0x1FFFFFFFu) != 0u || (f->id & addr_mask) != want)
+    {
         d->counters.foreign++;
         return OAMR_DALY_RX_FOREIGN;
     }
     const uint8_t data_id = (uint8_t)((f->id >> 16) & 0xFFu);
-    if (data_id < OAMR_DALY_ID_SOC || data_id > OAMR_DALY_ID_FAILURE) {
+    if (data_id < OAMR_DALY_ID_SOC || data_id > OAMR_DALY_ID_FAILURE)
+    {
         d->counters.unknown_id++;
         d->counters.unknown_id_last = data_id;
         return OAMR_DALY_RX_UNKNOWN_ID;
     }
-    if (f->dlc != 8u) {
+    if (f->dlc != 8u)
+    {
         return malformed(d);
     }
     const uint8_t *p = f->data;
     oamr_daly_rx_data_t *s = &d->data;
 
-    switch (data_id) {
+    switch (data_id)
+    {
     case OAMR_DALY_ID_SOC:
         s->pack_voltage_v = (float)be16(&p[0]) * 0.1f;
         s->acquired_voltage_v = (float)be16(&p[2]) * 0.1f;
@@ -81,7 +88,8 @@ oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_r
         s->soc_stamp_us = now_us;
         break;
     case OAMR_DALY_ID_CELL_MINMAX:
-        if (p[2] == 0u || p[5] == 0u || p[2] > d->cfg.n_cells || p[5] > d->cfg.n_cells) {
+        if (p[2] == 0u || p[5] == 0u || p[2] > d->cfg.n_cells || p[5] > d->cfg.n_cells)
+        {
             return malformed(d);
         }
         s->cell_max_mv = be16(&p[0]);
@@ -92,7 +100,8 @@ oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_r
         s->cell_minmax_stamp_us = now_us;
         break;
     case OAMR_DALY_ID_TEMP_MINMAX:
-        if (p[1] == 0u || p[3] == 0u || p[1] > d->cfg.n_temps || p[3] > d->cfg.n_temps) {
+        if (p[1] == 0u || p[3] == 0u || p[1] > d->cfg.n_temps || p[3] > d->cfg.n_temps)
+        {
             return malformed(d);
         }
         s->temp_max_c = temp_c(p[0]);
@@ -103,7 +112,8 @@ oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_r
         s->temp_minmax_stamp_us = now_us;
         break;
     case OAMR_DALY_ID_MOS:
-        if (p[1] > 1u || p[2] > 1u) {
+        if (p[1] > 1u || p[2] > 1u)
+        {
             return malformed(d);
         }
         s->charge_state = p[0];
@@ -115,7 +125,8 @@ oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_r
         s->mos_stamp_us = now_us;
         break;
     case OAMR_DALY_ID_STATUS:
-        if (p[2] > 1u || p[3] > 1u) {
+        if (p[2] > 1u || p[3] > 1u)
+        {
             return malformed(d);
         }
         s->n_cells_reported = p[0];
@@ -127,30 +138,38 @@ oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_r
         s->status_seen = true;
         s->status_stamp_us = now_us;
         break;
-    case OAMR_DALY_ID_CELL_VOLTAGES: {
+    case OAMR_DALY_ID_CELL_VOLTAGES:
+    {
         /* byte 0 frame number from 1, then three cells of 2 bytes. */
         const uint8_t frame = p[0];
-        if (frame == 0u || (uint32_t)(frame - 1u) * 3u >= d->cfg.n_cells) {
+        if (frame == 0u || (uint32_t)(frame - 1u) * 3u >= d->cfg.n_cells)
+        {
             return malformed(d);
         }
-        for (uint32_t i = 0u; i < 3u; i++) {
+        for (uint32_t i = 0u; i < 3u; i++)
+        {
             const uint32_t cell = (uint32_t)(frame - 1u) * 3u + i;
-            if (cell < d->cfg.n_cells) {
+            if (cell < d->cfg.n_cells)
+            {
                 s->cell_mv[cell] = be16(&p[1u + 2u * i]);
                 s->cell_seen_mask |= (uint64_t)1u << cell;
             }
         }
         break;
     }
-    case OAMR_DALY_ID_CELL_TEMPS: {
+    case OAMR_DALY_ID_CELL_TEMPS:
+    {
         /* byte 0 frame number from 1, then seven temperatures. */
         const uint8_t frame = p[0];
-        if (frame == 0u || (uint32_t)(frame - 1u) * 7u >= d->cfg.n_temps) {
+        if (frame == 0u || (uint32_t)(frame - 1u) * 7u >= d->cfg.n_temps)
+        {
             return malformed(d);
         }
-        for (uint32_t i = 0u; i < 7u; i++) {
+        for (uint32_t i = 0u; i < 7u; i++)
+        {
             const uint32_t t = (uint32_t)(frame - 1u) * 7u + i;
-            if (t < d->cfg.n_temps) {
+            if (t < d->cfg.n_temps)
+            {
                 s->cell_temp_c[t] = temp_c(p[1u + i]);
                 s->temp_seen_mask |= (uint32_t)1u << t;
             }
@@ -161,16 +180,19 @@ oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_r
         memcpy(s->balance_raw, p, sizeof(s->balance_raw));
         s->balance_seen = true;
         break;
-    case OAMR_DALY_ID_FAILURE: {
+    case OAMR_DALY_ID_FAILURE:
+    {
         memcpy(s->failure_raw, p, 8u);
         bool l1 = false;
         bool l2 = false;
         bool hw = false;
-        for (unsigned i = 0u; i < 4u; i++) {
+        for (unsigned i = 0u; i < 4u; i++)
+        {
             l1 = l1 || (p[i] & OAMR_DALY_LEVEL1_MASK) != 0u;
             l2 = l2 || (p[i] & OAMR_DALY_LEVEL2_MASK) != 0u;
         }
-        for (unsigned i = 4u; i < 7u; i++) {
+        for (unsigned i = 4u; i < 7u; i++)
+        {
             hw = hw || p[i] != 0u;
         }
         s->any_level1 = l1;
