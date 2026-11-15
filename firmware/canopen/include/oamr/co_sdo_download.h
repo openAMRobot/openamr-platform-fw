@@ -24,13 +24,14 @@
 #include "oamr/co_frame.h"
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-/* Codec only. Initiate expedited download (write) request, size 1, 2 or 4.
- * Returns false for an invalid node id, size or a null frame. */
-bool oamr_co_sdo_encode_download_expedited(uint8_t node_id, uint16_t index, uint8_t subindex,
-                                           uint32_t value, uint8_t size, oamr_co_frame_t *out);
+    /* Codec only. Initiate expedited download (write) request, size 1, 2 or 4.
+     * Returns false for an invalid node id, size or a null frame. */
+    bool oamr_co_sdo_encode_download_expedited(uint8_t node_id, uint16_t index, uint8_t subindex,
+                                               uint32_t value, uint8_t size, oamr_co_frame_t *out);
 
 #ifdef __cplusplus
 }
