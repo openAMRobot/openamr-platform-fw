@@ -127,6 +127,7 @@ static oamr_co_upl_config_t sched_cfg(th_bus *bus)
         .timeout_us = 50 * MS, /* test value */
         .max_retries = 1,
         .max_retries_set = true,
+        .late_guard_us = 20 * MS, /* test value */
         .send = th_send,
         .send_ctx = bus,
     };
@@ -175,6 +176,16 @@ static void sched_not_configured(void)
     c = sched_cfg(&bus);
     c.node_id = 0;
     CHECK_EQ(oamr_co_upl_init(&s, &c), OAMR_CO_UPL_NOT_CONFIGURED);
+    c = sched_cfg(&bus);
+    c.late_guard_us = 0; /* retries without a guard */
+    CHECK_EQ(oamr_co_upl_init(&s, &c), OAMR_CO_UPL_NOT_CONFIGURED);
+    c = sched_cfg(&bus);
+    c.late_guard_us = c.timeout_us; /* guard not shorter than the timeout */
+    CHECK_EQ(oamr_co_upl_init(&s, &c), OAMR_CO_UPL_NOT_CONFIGURED);
+    c = sched_cfg(&bus);
+    c.max_retries = 0;
+    c.late_guard_us = 0; /* no retry: guard not needed */
+    CHECK_EQ(oamr_co_upl_init(&s, &c), OAMR_CO_UPL_IDLE);
     c = sched_cfg(&bus);
     c.objects = NULL;
     CHECK_EQ(oamr_co_upl_init(&s, &c), OAMR_CO_UPL_NOT_CONFIGURED);
@@ -395,6 +406,221 @@ static void sched_clock_backwards(void)
     CHECK_EQ(oamr_co_upl_sample(&s, 0)->status, OAMR_CO_SAMPLE_TIMEOUT);
 }
 
+/* Response A to a timed-out request arrives after the retry B was sent.
+ * Inside the guard it is counted as late and never becomes a sample; B's
+ * response after the guard is the sample. */
+static void sched_late_response_after_retry(void)
+{
+    th_bus bus = {0};
+    oamr_co_upl_t s;
+    oamr_co_upl_config_t c = sched_cfg(&bus); /* timeout 50 ms, 1 retry, guard 20 ms */
+    CHECK_EQ(oamr_co_upl_init(&s, &c), OAMR_CO_UPL_IDLE);
+    oamr_co_upl_tick(&s, 0); /* request A for 6041h */
+    CHECK_EQ(bus.n, 1);
+    oamr_co_upl_tick(&s, 50 * MS); /* A timed out: retry B */
+    CHECK_EQ(bus.n, 2);
+    CHECK_EQ(oamr_co_upl_counters(&s, 0)->timeouts, 1);
+
+    /* A's delayed answer, 5 ms after B was sent */
+    oamr_co_frame_t a = resp(0x4B, 0x6041, 0, 0x1111);
+    CHECK(oamr_co_upl_on_frame(&s, &a, 55 * MS));
+    CHECK_EQ(s.late, 1);
+    CHECK_EQ(oamr_co_upl_counters(&s, 0)->late, 1);
+    CHECK_EQ(oamr_co_upl_sample(&s, 0)->status, OAMR_CO_SAMPLE_NONE);
+    CHECK_EQ(oamr_co_upl_sample(&s, 0)->seq, 0);
+    CHECK_EQ(oamr_co_upl_counters(&s, 0)->ok, 0);
+    CHECK_EQ(s.state, OAMR_CO_UPL_BUSY);
+    CHECK_EQ(s.cur, 0);
+    /* an abort echo inside the guard is late too */
+    oamr_co_frame_t ab = resp(0x80, 0x6041, 0, OAMR_CO_SDO_ABORT_GENERAL);
+    CHECK(oamr_co_upl_on_frame(&s, &ab, 69 * MS));
+    CHECK_EQ(s.late, 2);
+    CHECK_EQ(oamr_co_upl_sample(&s, 0)->status, OAMR_CO_SAMPLE_NONE);
+    CHECK_EQ(oamr_co_upl_counters(&s, 0)->aborts, 0);
+
+    /* B's answer at the guard (20 ms after the retry) becomes the sample */
+    oamr_co_frame_t b = resp(0x4B, 0x6041, 0, 0x2222);
+    CHECK(oamr_co_upl_on_frame(&s, &b, 70 * MS));
+    const oamr_co_sample_t *s0 = oamr_co_upl_sample(&s, 0);
+    CHECK_EQ(s0->status, OAMR_CO_SAMPLE_VALID);
+    CHECK_EQ(s0->value, 0x2222u);
+    CHECK_EQ(s0->seq, 1);
+    CHECK_EQ(s0->sample_us, 70 * MS);
+    CHECK_EQ(s.late, 2);
+    CHECK_EQ(s.cur, 1);
+    assert_only_uploads(&bus);
+}
+
+/* The guard applies after a retry only: a first-attempt answer is taken at once. */
+static void sched_guard_not_on_first_attempt(void)
+{
+    th_bus bus = {0};
+    oamr_co_upl_t s;
+    oamr_co_upl_config_t c = sched_cfg(&bus);
+    oamr_co_upl_init(&s, &c);
+    oamr_co_upl_tick(&s, 0);
+    oamr_co_frame_t f = resp(0x4B, 0x6041, 0, 0x37);
+    oamr_co_upl_on_frame(&s, &f, 1 * MS);
+    CHECK_EQ(oamr_co_upl_sample(&s, 0)->status, OAMR_CO_SAMPLE_VALID);
+    CHECK_EQ(s.late, 0);
+}
+
+/* Run one complete valid cycle over k_objs starting at t (ms). */
+static void valid_cycle(oamr_co_upl_t *s, uint64_t t_ms)
+{
+    const oamr_co_frame_t r[3] = {resp(0x4B, 0x6041, 0, 0x37), resp(0x43, 0x606C, 1, 1),
+                                  resp(0x43, 0x606C, 2, 2)};
+    for (unsigned i = 0; i < 3u; i++) {
+        oamr_co_upl_tick(s, (t_ms + 2u * i) * MS);
+        oamr_co_upl_on_frame(s, &r[i], (t_ms + 2u * i + 1u) * MS);
+    }
+}
+
+static void health_disabled_when_unset(void)
+{
+    th_bus bus = {0};
+    oamr_co_upl_t s;
+    oamr_co_upl_config_t c = sched_cfg(&bus); /* both health parameters 0 */
+    oamr_co_upl_init(&s, &c);
+    const oamr_co_upl_health_t *h = oamr_co_upl_health(&s);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_DISABLED);
+    CHECK(!h->protocol_criterion_enabled);
+    CHECK(!h->cycle_criterion_enabled);
+    CHECK(strcmp(oamr_co_upl_health_name(h->state), "DISABLED") == 0);
+    /* malformed burst and a long silence change nothing */
+    for (unsigned i = 0; i < 10u; i++) {
+        oamr_co_upl_tick(&s, (10u * i) * MS);
+        oamr_co_frame_t f = th_frame(0x581, 3, NULL);
+        oamr_co_upl_on_frame(&s, &f, (10u * i + 1u) * MS);
+    }
+    oamr_co_upl_tick(&s, 100000 * MS);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_DISABLED);
+    CHECK_EQ(h->unavailable_events, 0);
+    /* an unconfigured scheduler reports DISABLED too */
+    c.timeout_us = 0;
+    oamr_co_upl_init(&s, &c);
+    CHECK_EQ(oamr_co_upl_health(&s)->state, OAMR_CO_UPL_HEALTH_DISABLED);
+}
+
+/* A burst of malformed responses trips the protocol criterion. */
+static void health_malformed_burst(void)
+{
+    th_bus bus = {0};
+    oamr_co_upl_t s;
+    oamr_co_upl_config_t c = sched_cfg(&bus);
+    c.health_max_consecutive_protocol_errors = 4; /* test value */
+    oamr_co_upl_init(&s, &c);
+    const oamr_co_upl_health_t *h = oamr_co_upl_health(&s);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_STARTING);
+    CHECK(h->protocol_criterion_enabled);
+    CHECK(!h->cycle_criterion_enabled);
+    valid_cycle(&s, 0);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_AVAILABLE);
+    CHECK_EQ(h->valid_cycles, 1);
+
+    const uint8_t bad_cs[8] = {0xE0, 0, 0, 0, 0, 0, 0, 0}; /* reserved specifier */
+    for (unsigned i = 0; i < 3u; i++) {
+        oamr_co_upl_tick(&s, (100u + 10u * i) * MS);
+        oamr_co_frame_t f = th_frame(0x581, 8, bad_cs);
+        oamr_co_upl_on_frame(&s, &f, (101u + 10u * i) * MS);
+    }
+    CHECK_EQ(h->consecutive_protocol_errors, 3);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_AVAILABLE); /* N - 1: not yet */
+    oamr_co_upl_tick(&s, 130 * MS);
+    oamr_co_frame_t f = th_frame(0x581, 5, bad_cs); /* truncated */
+    oamr_co_upl_on_frame(&s, &f, 131 * MS);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_UNAVAILABLE);
+    CHECK_EQ(h->reasons, OAMR_CO_UPL_HEALTH_R_PROTOCOL);
+    CHECK_EQ(h->unavailable_events, 1);
+    /* more malformed answers: still one event */
+    for (unsigned i = 0; i < 5u; i++) {
+        oamr_co_upl_tick(&s, (140u + 10u * i) * MS);
+        f = th_frame(0x581, 8, bad_cs);
+        oamr_co_upl_on_frame(&s, &f, (141u + 10u * i) * MS);
+    }
+    CHECK_EQ(h->unavailable_events, 1);
+    CHECK_EQ(h->consecutive_protocol_errors, 9);
+    /* scheduler keeps reading: health is reporting only */
+    CHECK_EQ(s.state, OAMR_CO_UPL_IDLE);
+    const unsigned sent = bus.n;
+    oamr_co_upl_tick(&s, 200 * MS);
+    CHECK_EQ(bus.n, sent + 1);
+    /* single OK resets the run but stays UNAVAILABLE until a complete valid cycle */
+    while (s.cur != 0u) {
+        oamr_co_frame_t g = th_frame(0x581, 8, bad_cs);
+        oamr_co_upl_on_frame(&s, &g, 201 * MS);
+        oamr_co_upl_tick(&s, 202 * MS);
+    }
+    f = resp(0x4B, 0x6041, 0, 0x37);
+    oamr_co_upl_on_frame(&s, &f, 203 * MS);
+    CHECK_EQ(h->consecutive_protocol_errors, 0);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_UNAVAILABLE);
+    oamr_co_upl_tick(&s, 210 * MS);
+    f = resp(0x43, 0x606C, 1, 1);
+    oamr_co_upl_on_frame(&s, &f, 211 * MS);
+    oamr_co_upl_tick(&s, 212 * MS);
+    f = resp(0x43, 0x606C, 2, 2);
+    oamr_co_upl_on_frame(&s, &f, 213 * MS);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_AVAILABLE);
+    CHECK_EQ(h->reasons, 0);
+    assert_only_uploads(&bus);
+}
+
+/* No complete valid cycle within the time limit trips the cycle criterion. */
+static void health_no_valid_cycle_time(void)
+{
+    th_bus bus = {0};
+    oamr_co_upl_t s;
+    oamr_co_upl_config_t c = sched_cfg(&bus);
+    c.max_retries = 0;
+    c.health_max_no_valid_cycle_us = 500 * MS; /* test value */
+    oamr_co_upl_init(&s, &c);
+    const oamr_co_upl_health_t *h = oamr_co_upl_health(&s);
+    CHECK(!h->protocol_criterion_enabled);
+    CHECK(h->cycle_criterion_enabled);
+    /* the drive never answers: every request times out */
+    uint64_t t = 0;
+    for (; t < 499u; t += 50u) {
+        oamr_co_upl_tick(&s, t * MS);
+    }
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_STARTING);
+    oamr_co_upl_tick(&s, 500 * MS);
+    CHECK_EQ(h->state, OAMR_CO_UPL_HEALTH_UNAVAILABLE);
+    CHECK_EQ(h->reasons, OAMR_CO_UPL_HEALTH_R_NO_CYCLE);
+    CHECK_EQ(h->unavailable_events, 1);
+
+    /* a cycle with one timed-out entry is not a complete valid cycle */
+    oamr_co_upl_t s2;
+    oamr_co_upl_init(&s2, &c);
+    while (s2.cur != 0u || s2.state != OAMR_CO_UPL_IDLE) {
+        oamr_co_upl_tick(&s2, 0);
+    }
+    valid_cycle(&s2, 10);
+    CHECK_EQ(oamr_co_upl_health(&s2)->state, OAMR_CO_UPL_HEALTH_AVAILABLE);
+    const uint64_t ref = oamr_co_upl_health(&s2)->ref_us;
+    CHECK_EQ(ref, 15 * MS);
+    oamr_co_upl_tick(&s2, 20 * MS); /* entry 0 requested, never answered */
+    oamr_co_upl_tick(&s2, 70 * MS); /* timeout */
+    oamr_co_frame_t f = resp(0x43, 0x606C, 1, 1);
+    oamr_co_upl_tick(&s2, 71 * MS);
+    oamr_co_upl_on_frame(&s2, &f, 72 * MS);
+    f = resp(0x43, 0x606C, 2, 2);
+    oamr_co_upl_tick(&s2, 73 * MS);
+    oamr_co_upl_on_frame(&s2, &f, 74 * MS);
+    CHECK_EQ(oamr_co_upl_health(&s2)->valid_cycles, 1);
+    CHECK_EQ(oamr_co_upl_health(&s2)->ref_us, ref);
+    oamr_co_upl_tick(&s2, 514 * MS);
+    CHECK_EQ(oamr_co_upl_health(&s2)->state, OAMR_CO_UPL_HEALTH_AVAILABLE);
+    oamr_co_upl_tick(&s2, 515 * MS);
+    CHECK_EQ(oamr_co_upl_health(&s2)->state, OAMR_CO_UPL_HEALTH_UNAVAILABLE);
+    /* clock going backwards counts as exceeded */
+    oamr_co_upl_t s3;
+    oamr_co_upl_init(&s3, &c);
+    oamr_co_upl_tick(&s3, 100 * MS);
+    oamr_co_upl_tick(&s3, 50 * MS);
+    CHECK_EQ(oamr_co_upl_health(&s3)->state, OAMR_CO_UPL_HEALTH_UNAVAILABLE);
+}
+
 int main(void)
 {
     static const th_case cases[] = {
@@ -410,6 +636,11 @@ int main(void)
         {"sched_duplicate_and_wrong_node", sched_duplicate_and_wrong_node},
         {"sched_tx_failure", sched_tx_failure},
         {"sched_clock_backwards", sched_clock_backwards},
+        {"sched_late_response_after_retry", sched_late_response_after_retry},
+        {"sched_guard_not_on_first_attempt", sched_guard_not_on_first_attempt},
+        {"health_disabled_when_unset", health_disabled_when_unset},
+        {"health_malformed_burst", health_malformed_burst},
+        {"health_no_valid_cycle_time", health_no_valid_cycle_time},
     };
     return th_run("hb_sched", cases, sizeof(cases) / sizeof(cases[0]));
 }

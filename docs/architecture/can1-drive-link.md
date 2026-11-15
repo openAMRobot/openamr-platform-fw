@@ -24,10 +24,10 @@ the SDO timing finding. The V4.2 EDS and manual are not in hand (section 7).
 | Module | File | Does | Never does |
 | --- | --- | --- | --- |
 | COB-ID helpers | `firmware/canopen/include/oamr/co_cobid.h` | predefined connection set, classify an id | remap anything |
-| SDO codec | `co_sdo.h` | encode upload request, decode expedited upload response and abort; a download encoder exists as a tested codec function | get called for a write by anything in this package (a ctest guard checks this) |
+| SDO codec | `co_sdo.h` | encode upload request, decode expedited upload response and abort | encode a write. The expedited download encoder is in `co_sdo_download.h` and `co_sdo_download.c`, built as its own library `oamr_canopen_sdo_download` that the read-only library does not link; the ctest `read_only_guard` fails if the read-only archive defines or references the symbol, if its source list contains `co_sdo_download.c`, or if another source names it |
 | NMT, heartbeat, EMCY | `co_nmt_emcy.h` | decode heartbeat and boot-up, decode NMT commands seen on the bus, decode EMCY | encode an NMT command |
 | Heartbeat consumer | `co_hb_consumer.h` | last-seen time, last NMT state, boot-ups, malformed count, WAITING / ALIVE / LOST against a caller timeout with no default | act on LOST |
-| Upload scheduler | `co_upload_sched.h` | cycles a caller list, one expedited upload at a time, timeout and retry counters, a sample per entry with its own validity and sequence number | send anything but `40h` initiate-upload requests |
+| Upload scheduler | `co_upload_sched.h` | cycles a caller list, one expedited upload at a time, timeout and retry counters, a sample per entry with its own validity and sequence number; counts responses inside the late guard after a retry (`late`) without using them; overall health DISABLED / STARTING / AVAILABLE / UNAVAILABLE | send anything but `40h` initiate-upload requests; let the health state change what it sends |
 | Telemetry decode | `firmware/drive_telemetry/include/oamr/zlac_telemetry.h` | 606Ch:01 and 606Ch:02 each with its own validity; 603Fh as raw halves a (bits 31..16) and b (bits 15..0); 6041h CiA 402 state and bits; 2026h:05 confirmation | give 603Fh halves a left or right meaning; convert speed when 2026h:05 is not confirmed |
 | Read-back comparator | `config_readback.h` | compare caller-supplied expected values with read values, report MATCH, MISMATCH, SIZE_MISMATCH, UNVERIFIED | write, raise a fault, or treat an unread value as a match |
 
@@ -259,6 +259,9 @@ oamr_co_upl_config_t cfg = {
     .node_id = 1, .objects = objs, .n_objects = 5,
     .timeout_us = SDO_TIMEOUT_US,          /* TODO(Evans) */
     .max_retries = SDO_RETRIES, .max_retries_set = true,   /* TODO(Evans) */
+    .late_guard_us = SDO_LATE_GUARD_US,    /* TODO(Evans); needed when SDO_RETRIES > 0 */
+    .health_max_consecutive_protocol_errors = HEALTH_N,  /* TODO(Evans); 0 = disabled */
+    .health_max_no_valid_cycle_us = HEALTH_CYCLE_US,     /* TODO(Evans); 0 = disabled */
     .send = port_can1_send, .send_ctx = &can1,
 };
 oamr_co_upl_init(&sched, &cfg);
@@ -269,6 +272,35 @@ oamr_co_upl_init(&sched, &cfg);
 
 No parameter has a default. A missing one leaves the module in
 NOT_CONFIGURED and it sends nothing.
+
+### 6.1 Late responses after a retry
+
+An expedited SDO response has no transaction id, so the answer to a request A
+that timed out and the answer to its retry B for the same object look the
+same. After a retry, any OK or abort response that echoes the current object
+and arrives less than `late_guard_us` after the retry was sent is counted in
+`late` (per entry and in total) and never becomes a sample; the scheduler
+keeps waiting for B. A response at or after the guard is taken as B's answer.
+What this does not cover: an answer to A that is delayed past the guard is
+still accepted as B's. `late_guard_us` has no default; with `max_retries > 0`
+it must be greater than 0 and less than `timeout_us`, otherwise the scheduler
+stays NOT_CONFIGURED. With `max_retries = 0` there is no retry and the guard
+is not used. Test: `sched_late_response_after_retry` in
+`tests/host/canopen/test_hb_sched.c`.
+
+### 6.2 Overall health (reporting only)
+
+`oamr_co_upl_health()` returns DISABLED, STARTING, AVAILABLE or UNAVAILABLE
+with reason bits. It becomes UNAVAILABLE after
+`health_max_consecutive_protocol_errors` protocol errors in a row (malformed,
+segmented or wrong-specifier answers; an OK sample resets the run), or when
+`health_max_no_valid_cycle_us` has passed since the first tick or since the
+last complete valid cycle (a pass in which every entry ended with an OK
+sample). It returns to AVAILABLE only at the next complete valid cycle. Both
+parameters have no default; 0 disables that criterion and the report says so
+(`protocol_criterion_enabled`, `cycle_criterion_enabled`); both 0 gives
+DISABLED. The health state does not change what the scheduler sends and is
+not an input to any motion, enable or safety decision.
 
 ## 7. Open questions for the V4.2 EDS and manual
 

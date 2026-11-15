@@ -315,7 +315,8 @@ static void end_to_end_read_only(void)
     oamr_co_upl_t s;
     oamr_co_upl_config_t c = {
         .node_id = 1, .objects = objs, .n_objects = 5, .timeout_us = 50 * MS,
-        .max_retries = 1, .max_retries_set = true, .send = th_send, .send_ctx = &bus,
+        .max_retries = 1, .max_retries_set = true, .late_guard_us = 20 * MS, /* test values */
+        .send = th_send, .send_ctx = &bus,
     };
     CHECK_EQ(oamr_co_upl_init(&s, &c), OAMR_CO_UPL_IDLE);
     const uint8_t answers[5][8] = {
