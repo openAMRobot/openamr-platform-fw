@@ -1,0 +1,151 @@
+name: Telemetry image
+
+# Telemetry image of boards/stm32/telemetry_image (proposal, PR #51): builds the three presets,
+# runs the host tests of the modules it uses (PR #48 tests/host/sensors, PR #49 tests/host/canopen),
+# of the image itself (tests/host/telemetry_image) and of the console-log checker
+# (tests/host/telemetry_log), and runs the Renode scenarios of tools/ci/renode_telemetry.py on
+# Renode's STM32H743 model. GitHub-hosted runners only: no hardware, no secrets, nothing flashed.
+# A skipped or blocked scenario fails the run; it is never reported as a pass.
+on:
+  pull_request:
+    paths:
+      - "boards/stm32/**"
+      - "firmware/**"
+      - "tests/host/sensors/**"
+      - "tests/host/canopen/**"
+      - "tests/host/telemetry_image/**"
+      - "tests/host/telemetry_log/**"
+      - "tests/renode/**"
+      - "tools/ci/renode_*.py"
+      - "tools/ci/telemetry_log.py"
+      - ".github/workflows/telemetry-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Ubuntu 24.04 (noble) archive versions, as in firmware-nightly.yml
+  APT_ARM: gcc-arm-none-eabi=15:13.2.rel1-2 binutils-arm-none-eabi=2.42-1ubuntu1+23 libnewlib-arm-none-eabi=4.4.0.20231231-2 ninja-build
+  # Renode portable release and the SHA-256 pinned in firmware-nightly.yml (checked below)
+  RENODE_URL: https://github.com/renode/renode/releases/download/v1.16.1/renode-1.16.1.linux-portable-dotnet.tar.gz
+  RENODE_SHA256: 00e113cdbd0f5354cf2f64bbe3f5a070d8958409542fca66e45ac97d982938c0
+  RENODE_SCENARIOS: 11
+
+jobs:
+  build:
+    name: telemetry_image ${{ matrix.preset }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [Debug, Release, RenodeTest]
+    defaults:
+      run:
+        working-directory: boards/stm32/telemetry_image
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Arm GNU toolchain (pinned Ubuntu packages)
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $APT_ARM
+          arm-none-eabi-gcc --version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Configure (fetches FreeRTOS-Kernel V11.1.0, commit checked)
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build (post-link read-only guard included)
+        run: |
+          set -o pipefail
+          cmake --build --preset ${{ matrix.preset }} 2>&1 | tee build.log
+      - name: No compiler warnings outside vendored code
+        run: |
+          if grep -E ': warning:' build.log | grep -vE '/Drivers/|/_deps/'; then
+            echo "::error::compiler warnings in project code"
+            exit 1
+          fi
+      - name: Size report
+        run: |
+          { echo "### telemetry_image ${{ matrix.preset }}"; echo '```'
+            arm-none-eabi-size build/${{ matrix.preset }}/telemetry_image.elf; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: telemetry-image-${{ matrix.preset }}
+          path: |
+            boards/stm32/telemetry_image/build/${{ matrix.preset }}/telemetry_image.elf
+            boards/stm32/telemetry_image/build.log
+          if-no-files-found: error
+
+  host-tests:
+    name: host tests (sensors, canopen, telemetry image, console log)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+      - name: C host tests (-Werror, ASan + UBSan); zero tests fails
+        run: |
+          set -o pipefail
+          mkdir -p build
+          for suite in sensors canopen telemetry_image; do
+            cmake -S "tests/host/$suite" -B "build/host-$suite" -G Ninja
+            cmake --build "build/host-$suite"
+            ctest --test-dir "build/host-$suite" --output-on-failure --no-tests=error | tee "build/host-$suite.log"
+            { echo "### tests/host/$suite"; echo '```'; tail -n 3 "build/host-$suite.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Console-log checker (standard library unittest)
+        run: |
+          set -o pipefail
+          python3 -m unittest discover -s tests/host/telemetry_log -v 2>&1 | tee build/telemetry_log.log
+          grep -qE '^Ran [1-9][0-9]* tests' build/telemetry_log.log || { echo "::error::no test ran"; exit 1; }
+          { echo "### tests/host/telemetry_log"; echo '```'; tail -n 3 build/telemetry_log.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  renode:
+    name: Renode scenarios (H743 model)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: telemetry-image-RenodeTest
+          path: elf/RenodeTest
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: telemetry-image-Debug
+          path: elf/Debug
+      - name: Renode pin matches firmware-nightly.yml
+        run: |
+          grep -q "RENODE_SHA256: $RENODE_SHA256" .github/workflows/firmware-nightly.yml
+          grep -q "RENODE_URL: $RENODE_URL" .github/workflows/firmware-nightly.yml
+      - name: Download Renode 1.16.1 (SHA-256 checked)
+        run: |
+          curl -sSL -o "$RUNNER_TEMP/renode.tar.gz" "$RENODE_URL"
+          echo "$RENODE_SHA256  $RUNNER_TEMP/renode.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/renode" && tar xzf "$RUNNER_TEMP/renode.tar.gz" -C "$RUNNER_TEMP/renode" --strip-components=1
+      - name: Run every scenario; a failed, skipped or blocked one fails the job
+        run: |
+          set -o pipefail
+          mkdir -p build
+          python3 tools/ci/renode_telemetry.py --renode "$RUNNER_TEMP/renode/renode" \
+            --elf-test elf/RenodeTest/build/RenodeTest/telemetry_image.elf \
+            --elf-default elf/Debug/build/Debug/telemetry_image.elf \
+            --out build/renode-telemetry --summary "$GITHUB_STEP_SUMMARY" | tee build/renode-telemetry.log
+          grep -qE "^Renode telemetry scenarios: $RENODE_SCENARIOS passed, 0 failed, 0 blocked, of $RENODE_SCENARIOS$" build/renode-telemetry.log \
+            || { echo "::error::not every one of the $RENODE_SCENARIOS scenarios passed"; exit 1; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: renode-telemetry
+          path: build/renode-telemetry
+          retention-days: 30

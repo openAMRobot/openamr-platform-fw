@@ -25,7 +25,7 @@ This firmware is built as an **overlay on top of the linorobot2 firmware**.
 
 - **Upstream project:** linorobot2 — https://github.com/linorobot/linorobot2
 - **Upstream firmware repo:** linorobot2_hardware — https://github.com/linorobot/linorobot2_hardware
-  (the microcontroller firmware — `firmware.ino`, `lino_base_config.h`, `pid.cpp` — lives here)
+  (the microcontroller firmware — `firmware.ino`, `lino_base_config.h`, `pid.cpp`, `pid.h` — lives here)
 - **Upstream author / copyright:** Copyright (c) 2021 Juan Miguel Jimeno
 - **Upstream license:** Apache License, Version 2.0
 - **Pinned upstream version:** branch `jazzy`, commit
