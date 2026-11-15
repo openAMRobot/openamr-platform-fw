@@ -42,8 +42,8 @@ The current `OpenAMRobot.ioc` records these settings:
 | UART5 | Receive-only, 9600 baud, RX inversion enabled |
 | UART7 | Receive-only, 9600 baud, RX inversion enabled |
 | UART8 | Receive-only, 9600 baud, RX inversion enabled |
-| USART2 | Asynchronous mode selected |
-| USART6 | Asynchronous mode selected |
+| USART2 | TF-Luna front; asynchronous, 115200 baud, 8 data bits, no parity, 1 stop bit (115200 8N1), normal polarity (no inversion) |
+| USART6 | TF-Luna rear; asynchronous, 115200 baud, 8 data bits, no parity, 1 stop bit (115200 8N1), normal polarity (no inversion) |
 | Ethernet | RMII pin configuration |
 
 These entries describe configuration, not verified peripheral operation. They do not establish that connected devices, transceivers, physical wiring, interrupt handling, protocol drivers, or end-to-end communication have been validated.
@@ -112,15 +112,24 @@ The presets use Ninja and the repository's `cmake/gcc-arm-none-eabi.cmake` toolc
 
 ## Verification evidence and limitations
 
-PR #22 was independently verified by Alex against:
+Build evidence is recorded separately for the contributor environment and the independent review-team environment. These checks establish compilation and linking only.
 
-- **Base commit:** `f96014d`
-- **Head commit:** `4dfd314`
-- **Compiler:** GNU Arm GCC 13.3.1 (`arm-none-eabi-gcc`)
-- **Build environment:** WSL
-- **Warnings:** 0
+### Contributor build
 
-The following commands were used:
+- **Contributor:** Evans Klenam Kwashie-Seyram
+- **Environment:** WSL, Ubuntu 24.04
+- **Toolchain:** GNU Arm GCC 13.3.1 (`arm-none-eabi-gcc`)
+- **Build tools:** CMake 3.28.3 and Ninja 1.11.1
+- **Recorded result:** Debug rebuilt at head commit `fe2c3f3` with 0 warnings. The contributor's WSL toolchain version is 13.3.1; this is not the review team's compiler version.
+
+### Independent review-team build
+
+- **Environment:** Ubuntu 24.04
+- **Toolchain:** GNU Arm GCC 13.2.1 (`arm-none-eabi-gcc`)
+- **Commits checked:** `4dfd314` and the later documentation-only head `fe2c3f3`
+- **Recorded result at `fe2c3f3`:** Debug and Release built and linked with 0 warnings; Debug image size 38,712 bytes and Release image size 20,560 bytes. The Release ELF matched the independent build.
+
+The following commands are used for both configurations:
 
 ```bash
 cmake --preset Debug
@@ -128,8 +137,6 @@ cmake --build --preset Debug
 cmake --preset Release
 cmake --build --preset Release
 ```
-
-Both Debug and Release configurations built and linked successfully.
 
 Ethernet descriptor placement was checked:
 
