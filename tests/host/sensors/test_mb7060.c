@@ -4,6 +4,19 @@
 #include "oamr/mb7060.h"
 #include "test_harness.h"
 
+/*
+ * Golden values in this file and their sources.
+ *
+ * [PD]  MaxBotix XL-MaxSonar-WR/WRC datasheet PD11838z, pin 5 description
+ *       (frame "R" + three ASCII digits in cm + CR, 765 = no target, 20 cm
+ *       minimum reported distance), as summarised in
+ *       docs/architecture/sensors-and-telemetry.md. Source not verified: no
+ *       copy of the datasheet was available to this change.
+ * [RULE] the parser's own rules in mb7060.h (000 is FAULT, one sample per
+ *       trigger), not a datasheet statement.
+ * [CFG] sequencer timing values are test inputs only (TODO(Evans)).
+ */
+
 static oamr_mb_push_t feed_str(oamr_mb_t *p, const char *s, oamr_mb_sample_t *out, int *samples)
 {
     oamr_mb_push_t last = OAMR_MB_PUSH_NONE;
@@ -26,13 +39,13 @@ static void golden_and_classes(void)
         oamr_mb_status_t st;
         uint16_t cm;
     } cases[] = {
-        {"R123\r", OAMR_MB_OK, 123u},
+        {"R123\r", OAMR_MB_OK, 123u}, /* [PD] frame format */
         {"R021\r", OAMR_MB_OK, 21u},
         {"R764\r", OAMR_MB_OK, 764u},
-        {"R020\r", OAMR_MB_AT_MIN, 20u},   /* minimum reported distance */
+        {"R020\r", OAMR_MB_AT_MIN, 20u},   /* [PD] minimum reported distance */
         {"R019\r", OAMR_MB_AT_MIN, 19u},   /* not documented, still at/inside min */
-        {"R765\r", OAMR_MB_NO_TARGET, 765u},
-        {"R000\r", OAMR_MB_FAULT, 0u},
+        {"R765\r", OAMR_MB_NO_TARGET, 765u}, /* [PD] no target */
+        {"R000\r", OAMR_MB_FAULT, 0u},        /* [RULE] */
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         oamr_mb_t p;
@@ -131,7 +144,7 @@ static oamr_mbseq_config_t seq_cfg(void)
     oamr_mbseq_config_t c;
     memset(&c, 0, sizeof(c));
     c.n_sensors = 3u;
-    c.reading_timeout_us = 120000u; /* test values only */
+    c.reading_timeout_us = 120000u; /* [CFG] test values only */
     c.gap_us = 10000u;
     c.gap_set = true;
     return c;
@@ -160,7 +173,7 @@ static void seq_round_robin_and_timeout(void)
     oamr_mbseq_t s;
     oamr_mbseq_config_t c = seq_cfg();
     CHECK(oamr_mbseq_init(&s, &c));
-    uint32_t t = 1000u;
+    uint64_t t = 1000u;
     oamr_mbseq_decision_t d = oamr_mbseq_step(&s, t);
     CHECK(d.action == OAMR_MBSEQ_TRIGGER && d.sensor == 0u);
     oamr_mbseq_triggered(&s, 0u, t);
@@ -191,15 +204,30 @@ static void seq_round_robin_and_timeout(void)
     CHECK(d.action == OAMR_MBSEQ_TRIGGER && d.sensor == 0u);
 }
 
-static void seq_clock_wrap(void)
+static void seq_past_32_bits(void)
 {
+    /* Application time is 64 bit: a trigger just below 2^32 us times out
+     * 120 ms later, above 2^32 us, with no wrap involved. */
     oamr_mbseq_t s;
     oamr_mbseq_config_t c = seq_cfg();
     CHECK(oamr_mbseq_init(&s, &c));
-    const uint32_t t = 0xFFFFF000u;
+    const uint64_t t = 0xFFFFF000ull;
     oamr_mbseq_triggered(&s, 0u, t);
     CHECK(oamr_mbseq_step(&s, t + 1000u).action == OAMR_MBSEQ_WAIT);
-    CHECK(oamr_mbseq_step(&s, (uint32_t)(t + 120000u)).action == OAMR_MBSEQ_TIMED_OUT);
+    CHECK(oamr_mbseq_step(&s, t + 119999u).action == OAMR_MBSEQ_WAIT);
+    CHECK(oamr_mbseq_step(&s, t + 120000u).action == OAMR_MBSEQ_TIMED_OUT);
+}
+
+static void seq_time_before_trigger(void)
+{
+    /* A time earlier than the trigger (caller error) counts as no time
+     * elapsed: it never produces a timeout. */
+    oamr_mbseq_t s;
+    oamr_mbseq_config_t c = seq_cfg();
+    CHECK(oamr_mbseq_init(&s, &c));
+    oamr_mbseq_triggered(&s, 0u, 500000u);
+    CHECK(oamr_mbseq_step(&s, 1000u).action == OAMR_MBSEQ_WAIT);
+    CHECK(oamr_mbseq_step(&s, 620000u).action == OAMR_MBSEQ_TIMED_OUT);
 }
 
 int main(void)
@@ -211,6 +239,7 @@ int main(void)
     RUN(fuzz);
     RUN(seq_not_configured);
     RUN(seq_round_robin_and_timeout);
-    RUN(seq_clock_wrap);
+    RUN(seq_past_32_bits);
+    RUN(seq_time_before_trigger);
     TEST_MAIN_END();
 }

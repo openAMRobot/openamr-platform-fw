@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 #include "oamr/mb7060.h"
 
+#include "oamr/mono_time.h"
+
 #include <string.h>
 
 #define CHAR_R 0x52u
@@ -13,7 +15,8 @@ void oamr_mb_init(oamr_mb_t *p)
 
 void oamr_mb_arm(oamr_mb_t *p)
 {
-    if (p->in_frame) {
+    if (p->in_frame)
+    {
         p->counters.bytes_discarded += p->len;
     }
     p->in_frame = false;
@@ -33,8 +36,10 @@ static bool is_digit(uint8_t c)
 
 oamr_mb_push_t oamr_mb_push(oamr_mb_t *p, uint8_t byte, oamr_mb_sample_t *out)
 {
-    if (byte == CHAR_R) {
-        if (p->in_frame) {
+    if (byte == CHAR_R)
+    {
+        if (p->in_frame)
+        {
             /* A new frame started before the old one ended. */
             p->counters.malformed++;
             p->counters.bytes_discarded += p->len;
@@ -47,12 +52,15 @@ oamr_mb_push_t oamr_mb_push(oamr_mb_t *p, uint8_t byte, oamr_mb_sample_t *out)
         p->len = 1u;
         return OAMR_MB_PUSH_NONE;
     }
-    if (!p->in_frame) {
+    if (!p->in_frame)
+    {
         p->counters.bytes_discarded++;
         return OAMR_MB_PUSH_NONE;
     }
-    if (byte != CHAR_CR) {
-        if (!is_digit(byte) || p->len >= 1u + OAMR_MB_DIGITS) {
+    if (byte != CHAR_CR)
+    {
+        if (!is_digit(byte) || p->len >= 1u + OAMR_MB_DIGITS)
+        {
             p->counters.malformed++;
             p->counters.bytes_discarded += (uint32_t)p->len + 1u;
             p->in_frame = false;
@@ -66,33 +74,44 @@ oamr_mb_push_t oamr_mb_push(oamr_mb_t *p, uint8_t byte, oamr_mb_sample_t *out)
     const uint8_t len = p->len;
     p->in_frame = false;
     p->len = 0u;
-    if (len != 1u + OAMR_MB_DIGITS) {
+    if (len != 1u + OAMR_MB_DIGITS)
+    {
         p->counters.malformed++;
         p->counters.bytes_discarded += (uint32_t)len + 1u;
         return OAMR_MB_PUSH_MALFORMED;
     }
     uint16_t v = 0u;
-    for (uint8_t i = 1u; i < len; i++) {
+    for (uint8_t i = 1u; i < len; i++)
+    {
         v = (uint16_t)(v * 10u + (uint16_t)(p->buf[i] - 0x30u));
     }
-    if (v > OAMR_MB_NO_TARGET_CM) {
+    if (v > OAMR_MB_NO_TARGET_CM)
+    {
         p->counters.malformed++;
         return OAMR_MB_PUSH_MALFORMED;
     }
-    if (!p->armed) {
+    if (!p->armed)
+    {
         p->counters.unsolicited++;
         return OAMR_MB_PUSH_UNSOLICITED;
     }
     p->armed = false;
     memset(out, 0, sizeof(*out));
     out->range_cm = v;
-    if (v == 0u) {
+    if (v == 0u)
+    {
         out->status = OAMR_MB_FAULT;
-    } else if (v == OAMR_MB_NO_TARGET_CM) {
+    }
+    else if (v == OAMR_MB_NO_TARGET_CM)
+    {
         out->status = OAMR_MB_NO_TARGET;
-    } else if (v <= OAMR_MB_MIN_REPORTED_CM) {
+    }
+    else if (v <= OAMR_MB_MIN_REPORTED_CM)
+    {
         out->status = OAMR_MB_AT_MIN;
-    } else {
+    }
+    else
+    {
         out->status = OAMR_MB_OK;
     }
     out->valid = (out->status == OAMR_MB_OK);
@@ -107,8 +126,8 @@ bool oamr_mbseq_init(oamr_mbseq_t *s, const oamr_mbseq_config_t *cfg)
 {
     memset(s, 0, sizeof(*s));
     if (cfg == NULL || cfg->n_sensors == 0u || cfg->n_sensors > OAMR_MBSEQ_MAX_SENSORS ||
-        cfg->reading_timeout_us == 0u || cfg->reading_timeout_us > 0x7FFFFFFFu ||
-        !cfg->gap_set || cfg->gap_us > 0x7FFFFFFFu) {
+        cfg->reading_timeout_us == 0u || !cfg->gap_set)
+    {
         return false;
     }
     s->cfg = *cfg;
@@ -116,15 +135,18 @@ bool oamr_mbseq_init(oamr_mbseq_t *s, const oamr_mbseq_config_t *cfg)
     return true;
 }
 
-oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint32_t now_us)
+oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint64_t now_us)
 {
     oamr_mbseq_decision_t d = {OAMR_MBSEQ_WAIT, 0u};
-    if (!s->configured) {
+    if (!s->configured)
+    {
         d.action = OAMR_MBSEQ_NOT_CONFIGURED;
         return d;
     }
-    if (s->waiting) {
-        if ((uint32_t)(now_us - s->trigger_us) >= s->cfg.reading_timeout_us) {
+    if (s->waiting)
+    {
+        if (oamr_mono_elapsed_us(now_us, s->trigger_us) >= s->cfg.reading_timeout_us)
+        {
             s->waiting = false;
             s->done_us = now_us;
             s->timeouts[s->current]++;
@@ -133,20 +155,23 @@ oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint32_t now_us)
         }
         return d;
     }
-    if (s->started && (uint32_t)(now_us - s->done_us) < s->cfg.gap_us) {
+    if (s->started && oamr_mono_elapsed_us(now_us, s->done_us) < s->cfg.gap_us)
+    {
         return d;
     }
     d.action = OAMR_MBSEQ_TRIGGER;
     d.sensor = 0u;
-    if (s->started) {
+    if (s->started)
+    {
         d.sensor = (uint8_t)((s->current + 1u) % s->cfg.n_sensors);
     }
     return d;
 }
 
-void oamr_mbseq_triggered(oamr_mbseq_t *s, uint8_t sensor, uint32_t now_us)
+void oamr_mbseq_triggered(oamr_mbseq_t *s, uint8_t sensor, uint64_t now_us)
 {
-    if (!s->configured || s->waiting || sensor >= s->cfg.n_sensors) {
+    if (!s->configured || s->waiting || sensor >= s->cfg.n_sensors)
+    {
         return;
     }
     s->current = sensor;
@@ -155,9 +180,10 @@ void oamr_mbseq_triggered(oamr_mbseq_t *s, uint8_t sensor, uint32_t now_us)
     s->started = true;
 }
 
-bool oamr_mbseq_reading(oamr_mbseq_t *s, uint8_t sensor, uint32_t now_us)
+bool oamr_mbseq_reading(oamr_mbseq_t *s, uint8_t sensor, uint64_t now_us)
 {
-    if (!s->configured || !s->waiting || sensor != s->current) {
+    if (!s->configured || !s->waiting || sensor != s->current)
+    {
         s->late_frames++;
         return false;
     }

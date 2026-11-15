@@ -7,7 +7,7 @@
  * full-scale ranges and output data rate are caller parameters with no
  * default (an unset value leaves the driver NOT_CONFIGURED); the sample type
  * is local to this module so it builds without the #46 core headers; time
- * stamps use the 32-bit wrapping microsecond clock of oamr/freshness.h; the
+ * stamps are application time (uint64_t microseconds, oamr/mono_time.h); the
  * scaling and temperature conversions are pure functions with tests; a NULL
  * transfer or delay hook is rejected instead of called.
  *
@@ -28,6 +28,24 @@
  * returned as data. It is counted, and each valid sample is handed out once
  * (oamr_icm_take_sample), so an old reading is never published as new.
  * Axes are in the sensor frame; no remap (imu_link carries the rotation).
+ *
+ * Configuration writes are permitted. oamr_icm_init() writes DEVICE_CONFIG,
+ * INT_CONFIG, INT_CONFIG1, INT_SOURCE0, GYRO_CONFIG0, ACCEL_CONFIG0,
+ * PWR_MGMT0 and REG_BANK_SEL of this sensor, and nothing else. They differ
+ * from drive writes (CANopen controlword 6040h, target velocity 60FFh, NMT,
+ * any SDO download), which this repository's agents never author, because:
+ *   - they only set how this sensor measures and reports (range, data rate,
+ *     power mode, interrupt pin). No actuator, brake, contactor or output
+ *     changes state, and nothing moves;
+ *   - an SPI write is addressed by this sensor's chip select, so it reaches
+ *     no other device; it is not a bus message that a drive could act on;
+ *   - the six configuration registers written in the init sequence are read
+ *     back and a mismatch fails init with CONFIG_MISMATCH, so a wrong setting
+ *     is reported, not used (the soft reset is checked by re-reading
+ *     WHO_AM_I);
+ *   - the IMU is not a safety input (AGENTS.md: functional telemetry is
+ *     never safety evidence); a wrong configuration gives wrong or missing
+ *     IMU data, which consumers already treat as UNKNOWN.
  */
 #ifndef OAMR_ICM42688_H
 #define OAMR_ICM42688_H
@@ -37,7 +55,8 @@
 #include <stdint.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 /* Register map, user bank 0 (DS-000347). */
@@ -65,106 +84,116 @@ extern "C" {
 #define OAMR_ICM_SOFT_RESET_WAIT_US 1000u
 #define OAMR_ICM_GYRO_ON_WAIT_US 200u
 
-/* GYRO_CONFIG0 FS_SEL (bits 7:5). 0 is reserved here for "unset". */
-typedef enum {
-    OAMR_ICM_GYRO_FS_UNSET = 0,
-    OAMR_ICM_GYRO_FS_2000DPS = 1, /* FS_SEL 0 */
-    OAMR_ICM_GYRO_FS_1000DPS = 2,
-    OAMR_ICM_GYRO_FS_500DPS = 3,
-    OAMR_ICM_GYRO_FS_250DPS = 4,
-    OAMR_ICM_GYRO_FS_125DPS = 5,
-    OAMR_ICM_GYRO_FS_62_5DPS = 6,
-    OAMR_ICM_GYRO_FS_31_25DPS = 7,
-    OAMR_ICM_GYRO_FS_15_625DPS = 8 /* FS_SEL 7 */
-} oamr_icm_gyro_fs_t;
+    /* GYRO_CONFIG0 FS_SEL (bits 7:5). 0 is reserved here for "unset". */
+    typedef enum
+    {
+        OAMR_ICM_GYRO_FS_UNSET = 0,
+        OAMR_ICM_GYRO_FS_2000DPS = 1, /* FS_SEL 0 */
+        OAMR_ICM_GYRO_FS_1000DPS = 2,
+        OAMR_ICM_GYRO_FS_500DPS = 3,
+        OAMR_ICM_GYRO_FS_250DPS = 4,
+        OAMR_ICM_GYRO_FS_125DPS = 5,
+        OAMR_ICM_GYRO_FS_62_5DPS = 6,
+        OAMR_ICM_GYRO_FS_31_25DPS = 7,
+        OAMR_ICM_GYRO_FS_15_625DPS = 8 /* FS_SEL 7 */
+    } oamr_icm_gyro_fs_t;
 
-/* ACCEL_CONFIG0 FS_SEL (bits 7:5). */
-typedef enum {
-    OAMR_ICM_ACCEL_FS_UNSET = 0,
-    OAMR_ICM_ACCEL_FS_16G = 1, /* FS_SEL 0 */
-    OAMR_ICM_ACCEL_FS_8G = 2,
-    OAMR_ICM_ACCEL_FS_4G = 3,
-    OAMR_ICM_ACCEL_FS_2G = 4   /* FS_SEL 3 */
-} oamr_icm_accel_fs_t;
+    /* ACCEL_CONFIG0 FS_SEL (bits 7:5). */
+    typedef enum
+    {
+        OAMR_ICM_ACCEL_FS_UNSET = 0,
+        OAMR_ICM_ACCEL_FS_16G = 1, /* FS_SEL 0 */
+        OAMR_ICM_ACCEL_FS_8G = 2,
+        OAMR_ICM_ACCEL_FS_4G = 3,
+        OAMR_ICM_ACCEL_FS_2G = 4 /* FS_SEL 3 */
+    } oamr_icm_accel_fs_t;
 
-typedef struct {
-    /* One SPI transaction with chip select asserted for its whole length. */
-    bool (*transfer)(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len);
-    void (*delay_us)(void *ctx, uint32_t us);
-    void *ctx;
-} oamr_icm_spi_t;
+    typedef struct
+    {
+        /* One SPI transaction with chip select asserted for its whole length. */
+        bool (*transfer)(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len);
+        void (*delay_us)(void *ctx, uint32_t us);
+        void *ctx;
+    } oamr_icm_spi_t;
 
-typedef struct {
-    oamr_icm_gyro_fs_t gyro_fs;   /* no default. TODO(Evans) */
-    oamr_icm_accel_fs_t accel_fs; /* no default. TODO(Evans) */
-    uint8_t odr_code;             /* ODR bits 3:0 for gyro and accel, 1..15; 0 = unset.
-                                   * 0x07 is 200 Hz (DS-000347). TODO(Evans) */
-} oamr_icm_config_t;
+    typedef struct
+    {
+        oamr_icm_gyro_fs_t gyro_fs;   /* no default. TODO(Evans) */
+        oamr_icm_accel_fs_t accel_fs; /* no default. TODO(Evans) */
+        uint8_t odr_code;             /* ODR bits 3:0 for gyro and accel, 1..15; 0 = unset.
+                                       * 0x07 is 200 Hz (DS-000347). TODO(Evans) */
+    } oamr_icm_config_t;
 
-typedef enum {
-    OAMR_ICM_OK = 0,
-    OAMR_ICM_NOT_CONFIGURED,
-    OAMR_ICM_BUS_ERROR,
-    OAMR_ICM_WRONG_ID,
-    OAMR_ICM_CONFIG_MISMATCH
-} oamr_icm_result_t;
+    typedef enum
+    {
+        OAMR_ICM_OK = 0,
+        OAMR_ICM_NOT_CONFIGURED,
+        OAMR_ICM_BUS_ERROR,
+        OAMR_ICM_WRONG_ID,
+        OAMR_ICM_CONFIG_MISMATCH
+    } oamr_icm_result_t;
 
-typedef enum {
-    OAMR_ICM_STAMP_INT1 = 1, /* time stamp taken at the INT1 data-ready edge */
-    OAMR_ICM_STAMP_POLL = 2  /* time stamp taken when polling found data ready */
-} oamr_icm_stamp_source_t;
+    typedef enum
+    {
+        OAMR_ICM_STAMP_INT1 = 1, /* time stamp taken at the INT1 data-ready edge */
+        OAMR_ICM_STAMP_POLL = 2  /* time stamp taken when polling found data ready */
+    } oamr_icm_stamp_source_t;
 
-typedef struct {
-    bool valid;
-    uint32_t seq;          /* increments for every attempted read */
-    uint32_t stamp_us;     /* caller's monotonic clock, wraps at 2^32 */
-    oamr_icm_stamp_source_t stamp_source;
-    float gyro_rad_s[3];   /* sensor frame */
-    float accel_m_s2[3];   /* sensor frame */
-    float temperature_c;
-} oamr_icm_sample_t;
+    typedef struct
+    {
+        bool valid;
+        uint32_t seq;      /* increments for every attempted read */
+        uint64_t stamp_us; /* application time (oamr/mono_time.h) */
+        oamr_icm_stamp_source_t stamp_source;
+        float gyro_rad_s[3]; /* sensor frame */
+        float accel_m_s2[3]; /* sensor frame */
+        float temperature_c;
+    } oamr_icm_sample_t;
 
-typedef struct {
-    uint32_t samples_ok;
-    uint32_t read_failures;   /* bus transfer failed */
-    uint32_t invalid_samples; /* sensor returned its invalid code */
-    uint32_t consecutive_bad;
-} oamr_icm_counters_t;
+    typedef struct
+    {
+        uint32_t samples_ok;
+        uint32_t read_failures;   /* bus transfer failed */
+        uint32_t invalid_samples; /* sensor returned its invalid code */
+        uint32_t consecutive_bad;
+    } oamr_icm_counters_t;
 
-typedef struct {
-    oamr_icm_spi_t spi;
-    oamr_icm_config_t cfg;
-    bool configured;
-    uint8_t who_am_i;
-    oamr_icm_sample_t latest;
-    bool latest_taken;
-    oamr_icm_counters_t counters;
-    uint32_t seq;
-} oamr_icm_t;
+    typedef struct
+    {
+        oamr_icm_spi_t spi;
+        oamr_icm_config_t cfg;
+        bool configured;
+        uint8_t who_am_i;
+        oamr_icm_sample_t latest;
+        bool latest_taken;
+        oamr_icm_counters_t counters;
+        uint32_t seq;
+    } oamr_icm_t;
 
-/* Pure helpers. Return 0 for an unset or out-of-range selection. */
-float oamr_icm_gyro_lsb_per_dps(oamr_icm_gyro_fs_t fs);
-float oamr_icm_accel_lsb_per_g(oamr_icm_accel_fs_t fs);
-uint8_t oamr_icm_gyro_config0(oamr_icm_gyro_fs_t fs, uint8_t odr_code);
-uint8_t oamr_icm_accel_config0(oamr_icm_accel_fs_t fs, uint8_t odr_code);
-float oamr_icm_temp_c(int16_t raw);
-float oamr_icm_gyro_rad_s(int16_t raw, oamr_icm_gyro_fs_t fs);
-float oamr_icm_accel_m_s2(int16_t raw, oamr_icm_accel_fs_t fs);
-bool oamr_icm_config_valid(const oamr_icm_config_t *cfg);
-/* Decode the 14 bytes read from TEMP_DATA1. Returns false (and leaves *out
- * untouched) if any word holds the invalid code. */
-bool oamr_icm_decode(const uint8_t raw[14], const oamr_icm_config_t *cfg, oamr_icm_sample_t *out);
+    /* Pure helpers. Return 0 for an unset or out-of-range selection. */
+    float oamr_icm_gyro_lsb_per_dps(oamr_icm_gyro_fs_t fs);
+    float oamr_icm_accel_lsb_per_g(oamr_icm_accel_fs_t fs);
+    uint8_t oamr_icm_gyro_config0(oamr_icm_gyro_fs_t fs, uint8_t odr_code);
+    uint8_t oamr_icm_accel_config0(oamr_icm_accel_fs_t fs, uint8_t odr_code);
+    float oamr_icm_temp_c(int16_t raw);
+    float oamr_icm_gyro_rad_s(int16_t raw, oamr_icm_gyro_fs_t fs);
+    float oamr_icm_accel_m_s2(int16_t raw, oamr_icm_accel_fs_t fs);
+    bool oamr_icm_config_valid(const oamr_icm_config_t *cfg);
+    /* Decode the 14 bytes read from TEMP_DATA1. Returns false (and leaves *out
+     * untouched) if any word holds the invalid code. */
+    bool oamr_icm_decode(const uint8_t raw[14], const oamr_icm_config_t *cfg,
+                         oamr_icm_sample_t *out);
 
-/* Device access through the caller's SPI hook. */
-oamr_icm_result_t oamr_icm_init(oamr_icm_t *icm, const oamr_icm_spi_t *spi,
-                                const oamr_icm_config_t *cfg);
-void oamr_icm_read_sample(oamr_icm_t *icm, uint32_t stamp_us, oamr_icm_stamp_source_t src);
-/* Polling path while INT1 is not wired: reads INT_STATUS and, if data is
- * ready, the sample. Returns true if a sample read was attempted or the
- * status read failed. */
-bool oamr_icm_poll(oamr_icm_t *icm, uint32_t now_us);
-/* Copies the sample only if it is new, valid and not yet taken. */
-bool oamr_icm_take_sample(oamr_icm_t *icm, oamr_icm_sample_t *out);
+    /* Device access through the caller's SPI hook. */
+    oamr_icm_result_t oamr_icm_init(oamr_icm_t *icm, const oamr_icm_spi_t *spi,
+                                    const oamr_icm_config_t *cfg);
+    void oamr_icm_read_sample(oamr_icm_t *icm, uint64_t stamp_us, oamr_icm_stamp_source_t src);
+    /* Polling path while INT1 is not wired: reads INT_STATUS and, if data is
+     * ready, the sample. Returns true if a sample read was attempted or the
+     * status read failed. */
+    bool oamr_icm_poll(oamr_icm_t *icm, uint64_t now_us);
+    /* Copies the sample only if it is new, valid and not yet taken. */
+    bool oamr_icm_take_sample(oamr_icm_t *icm, oamr_icm_sample_t *out);
 
 #ifdef __cplusplus
 }

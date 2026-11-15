@@ -33,7 +33,8 @@
 #include <stdint.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 /* RCC_RSR bits, RM0468. */
@@ -52,24 +53,26 @@ extern "C" {
      OAMR_RSR_PORRSTF | OAMR_RSR_SFTRSTF | OAMR_RSR_IWDG1RSTF | OAMR_RSR_WWDG1RSTF |               \
      OAMR_RSR_LPWRRSTF)
 
-/* I8 BaseStatus reset_cause (interfaces #38 rev 4). */
-typedef enum {
-    OAMR_RESET_CAUSE_UNKNOWN = 0,
-    OAMR_RESET_CAUSE_POWER_ON = 1,
-    OAMR_RESET_CAUSE_BROWNOUT = 2,
-    OAMR_RESET_CAUSE_WATCHDOG = 3,
-    OAMR_RESET_CAUSE_SOFTWARE = 4,
-    OAMR_RESET_CAUSE_PIN = 5
-} oamr_reset_cause_t;
+    /* I8 BaseStatus reset_cause (interfaces #38 rev 4). */
+    typedef enum
+    {
+        OAMR_RESET_CAUSE_UNKNOWN = 0,
+        OAMR_RESET_CAUSE_POWER_ON = 1,
+        OAMR_RESET_CAUSE_BROWNOUT = 2,
+        OAMR_RESET_CAUSE_WATCHDOG = 3,
+        OAMR_RESET_CAUSE_SOFTWARE = 4,
+        OAMR_RESET_CAUSE_PIN = 5
+    } oamr_reset_cause_t;
 
-typedef struct {
-    oamr_reset_cause_t cause;
-    uint32_t flags_raw;      /* the value passed in, for reset_flags_raw */
-    bool multiple_sources;   /* more than one source flag besides the implied PIN/CPU/BOR */
-    bool unknown_bits;       /* bits outside the documented set were present */
-} oamr_reset_decoded_t;
+    typedef struct
+    {
+        oamr_reset_cause_t cause;
+        uint32_t flags_raw;    /* the value passed in, for reset_flags_raw */
+        bool multiple_sources; /* more than one source flag besides the implied PIN/CPU/BOR */
+        bool unknown_bits;     /* bits outside the documented set were present */
+    } oamr_reset_decoded_t;
 
-oamr_reset_decoded_t oamr_reset_cause_decode(uint32_t rcc_rsr);
+    oamr_reset_decoded_t oamr_reset_cause_decode(uint32_t rcc_rsr);
 
 #ifdef __cplusplus
 }
