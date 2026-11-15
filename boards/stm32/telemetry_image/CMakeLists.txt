@@ -78,6 +78,8 @@ target_link_libraries(freertos_kernel PUBLIC stm32cubemx)
 add_library(oamr_modules OBJECT
   ${REPO_ROOT}/firmware/telemetry/src/reset_cause.c
   ${REPO_ROOT}/firmware/telemetry/src/freshness.c
+  ${REPO_ROOT}/firmware/telemetry/src/daly_rx.c
+  ${REPO_ROOT}/firmware/telemetry/src/ctl017_rx.c
   ${REPO_ROOT}/firmware/sensor_bridge/src/mb7060.c
   ${REPO_ROOT}/firmware/sensor_bridge/src/tfluna.c
   ${REPO_ROOT}/firmware/canopen/src/co_cobid.c
@@ -111,13 +113,15 @@ set(TLM_SOURCES
   src/tlm_console.c
   src/tlm_can1.c
   src/tlm_can1_tx.c
+  src/tlm_can_aux.c
   src/tlm_sensors.c
   src/tlm_report.c)
 # Pure C files (no HAL, no RTOS): built with -Wconversion and by the host tests.
 set(TLM_PURE_SOURCES
   src/tlm_format.c
   src/tlm_uart_rx.c
-  src/tlm_sched.c)
+  src/tlm_sched.c
+  src/tlm_can_aux_tx.c)
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   ${TLM_SOURCES}
   ${TLM_PURE_SOURCES}

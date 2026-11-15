@@ -22,6 +22,7 @@ DATA = Path(__file__).resolve().parent / "data"
 NOMINAL = (DATA / "renode_nominal.console.log").read_text()
 RESET = (DATA / "renode_reset_mid_run.console.log").read_text()
 DEFAULT = (DATA / "renode_default_build.console.log").read_text()
+AUX = (DATA / "renode_aux_buses.console.log").read_text()
 
 
 def dump(records):
@@ -114,6 +115,21 @@ class CapturedLogs(unittest.TestCase):
         for c in tl.slow_lines(records, "cfg"):
             self.assertIn("sdo", c["dis"])
             self.assertEqual((c["nmt"], c["sdo"]), ("unknown", "disabled"))
+
+
+    def test_aux_capture_lift_follows_and_battery_stays_locked(self):
+        records, problems = tl.check_log(AUX)
+        self.assertEqual(problems, [])
+        ax = tl.ax_lines(records)
+        lines = [r for r in records if r["t"] == "st"]
+        # One ax line after every status line of a period without a slow line.
+        self.assertEqual([a["seq"] for a in ax], [s["seq"] for s in lines if s["seq"] % tl.SLOW_EVERY != 0])
+        self.assertTrue(all(a["bms"] == "locked" for a in ax))
+        positions = [a["lift"]["pos"] for a in ax]
+        self.assertIn(5000, positions)
+        self.assertIn(7000, positions)
+        self.assertIn("unknown", positions)
+        self.assertTrue(all(a["_len"] <= tl.SLOW_LINE_MAX for a in ax))
 
 
 class CheckerFindsDamage(unittest.TestCase):
@@ -243,6 +259,35 @@ class CheckerFindsDamage(unittest.TestCase):
         def change(records):
             status(records, 10)["cnt"]["sdo_to"] = 0
         self.assertProblem(altered(NOMINAL, change), "counter sdo_to is 0")
+
+    def test_missing_ax_line(self):
+        def change(records):
+            records.remove(tl.ax_lines(records)[2])
+        self.assertProblem(altered(AUX, change), "no ax line after seq")
+
+    def test_ax_line_in_a_slow_period(self):
+        def change(records):
+            moved = tl.ax_lines(records)[0]
+            records.remove(moved)
+            records.insert(records.index(status(records, 5)) + 1, moved)
+        self.assertProblem(altered(AUX, change), "does not follow a status line of a period without a slow line")
+
+    def test_battery_value_while_locked(self):
+        def change(records):
+            tl.ax_lines(records)[3]["bms"] = 25.6
+        self.assertProblem(altered(AUX, change), "a value that is not usable is never printed")
+
+    def test_lift_position_without_a_status_frame(self):
+        def change(records):
+            a = tl.ax_lines(records)[3]
+            a["lift"]["age_us"] = "unknown"
+        self.assertProblem(altered(AUX, change), "lift status never received")
+
+    def test_lift_position_zero_instead_of_unknown(self):
+        def change(records):
+            a = tl.ax_lines(records)[3]
+            a["lift"]["pos"] = -1
+        self.assertProblem(altered(AUX, change), "lift position -1")
 
     def test_cut_line(self):
         text = NOMINAL.replace('"seq":12,', '"seq":12,' + "\n", 1)

@@ -121,6 +121,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
     if (hfdcan != &hfdcan1)
     {
+        /* FDCAN2 and FDCAN3: receive-only handling in tlm_can_aux.c. */
+        portYIELD_FROM_ISR((BaseType_t)tlm_can_aux_rx_isr(hfdcan, RxFifo0ITs));
         return;
     }
     if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_MESSAGE_LOST) != 0u)

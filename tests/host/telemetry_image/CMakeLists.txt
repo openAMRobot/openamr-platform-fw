@@ -32,6 +32,13 @@ target_include_directories(test_can1_tx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/stub
 target_compile_options(test_can1_tx PRIVATE ${WARN})
 add_test(NAME test_can1_tx COMMAND test_can1_tx)
 
+# The CAN2/CAN3 gate, linked with the CAN1 gate and the same recording stub.
+add_executable(test_can_aux_tx test_can_aux_tx.c ${IMG}/src/tlm_can_aux_tx.c ${IMG}/src/tlm_can1_tx.c)
+target_include_directories(test_can_aux_tx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/stub
+                           ${CMAKE_CURRENT_SOURCE_DIR} ${INC})
+target_compile_options(test_can_aux_tx PRIVATE ${WARN})
+add_test(NAME test_can_aux_tx COMMAND test_can_aux_tx)
+
 add_executable(test_uart_rx test_uart_rx.c ${IMG}/src/tlm_uart_rx.c ${IMG}/src/tlm_sched.c)
 target_include_directories(test_uart_rx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INC})
 target_compile_options(test_uart_rx PRIVATE ${WARN})

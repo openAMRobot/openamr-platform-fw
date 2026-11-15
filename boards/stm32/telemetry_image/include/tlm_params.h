@@ -108,6 +108,33 @@
  * Source: this image. */
 #define TLM_UART_RX_RESTART_MAX 3u
 
+/* CAN2 and CAN3 nominal bit rates, for the banner only. The bit timing is the
+ * generated MX_FDCAN2_Init() and MX_FDCAN3_Init() (prescaler 12 and 6, seg1 13,
+ * seg2 2 at 48 MHz). Source: boards/stm32/OpenAMRobot/OpenAMRobot.ioc. */
+#define TLM_CAN2_BITRATE 250000u
+#define TLM_CAN3_BITRATE 500000u
+
+/* CANopen node id of the CTL-017 lift controller on CAN3.
+ * Source: openamr-upperbody-fw PR #17 (8dc7236), docs/ctl017_object_dictionary.md
+ * section 1 (Alex 24 Oct, P-03 item 29), proposal v1. */
+#define TLM_LIFT_NODE_ID 0x10u
+
+/* The Daly decoder stays locked: protocol_confirmed is set only by the owner
+ * after a CAN capture of the delivered BMS matches daly_rx.h (PR #48). No
+ * build of this image, the test build included, unlocks it; battery values
+ * are reported as "locked" and never printed. */
+#define TLM_DALY_PROTOCOL_CONFIRMED 0
+
+/* Receive queue of CAN2 and CAN3 together, in frames; frames taken from each
+ * RX FIFO 0 per interrupt entry (both FIFOs have 16 elements, generated init).
+ * Source: this image. The lift sends about 30 frames/s (TPDO1, TPDO2, heartbeat
+ * at 100 ms, upperbody-fw #17 section 3 and 4 proposals), the BMS answers at
+ * 5 Hz (BOM CAN buses sheet, proposed): an entry takes the whole FIFO. */
+#define TLM_CAN_AUX_RX_QUEUE_LEN 32u
+#define TLM_CAN_AUX_RX_MAX_PER_IRQ 16u
+#define TLM_PRIO_CAN_AUX 3u
+#define TLM_STACK_CAN_AUX 384u
+
 /* ------------------------------------------------------------------------ */
 /* Open values: inactive unless TLM_TEST_PARAMS is defined                    */
 /* ------------------------------------------------------------------------ */
@@ -163,6 +190,19 @@
 #define TLM_MB7060_STALE_SET 0
 #define TLM_MB7060_STALE_US 0u
 
+/* CTL-017 heartbeat consumer timeout. Source: none approved.
+ * upperbody-fw #17 section 2: "node lost after 300 ms" (D15, TODO(Evans)). */
+#define TLM_LIFT_HB_TIMEOUT_SET 0
+#define TLM_LIFT_HB_TIMEOUT_US 0u
+
+/* Daly BMS and host addresses on CAN2, cell and sensor counts.
+ * Source: none confirmed. daly_rx.h: "Addresses have no default" (TODO(Evans)). */
+#define TLM_DALY_ADDR_SET 0
+#define TLM_DALY_BMS_ADDR 0u
+#define TLM_DALY_HOST_ADDR 0u
+#define TLM_DALY_N_CELLS 0u
+#define TLM_DALY_N_TEMPS 0u
+
 #else /* TLM_TEST_PARAMS ---------------------------------------------------- */
 
 /* TEST VALUES. Not approved, not measured, not for a board on a drive. Each
@@ -209,6 +249,19 @@
 /* Test only: 300 ms, about three 99 ms MB7060 cycles (PD11838z). */
 #define TLM_MB7060_STALE_SET 1
 #define TLM_MB7060_STALE_US 300000u
+
+/* D15 proposal quoted in upperbody-fw #17 section 2 (300 ms). */
+#define TLM_LIFT_HB_TIMEOUT_SET 1
+#define TLM_LIFT_HB_TIMEOUT_US 300000u
+
+/* V1.0 addresses as recorded in daly_rx.h (BMS 0x01, host 0x40), unconfirmed;
+ * 8S pack (E-01 rev1.8), one temperature sensor (SIL test value of
+ * openamr-platform-sw config/sil.yaml). The decoder stays locked. */
+#define TLM_DALY_ADDR_SET 1
+#define TLM_DALY_BMS_ADDR 0x01u
+#define TLM_DALY_HOST_ADDR 0x40u
+#define TLM_DALY_N_CELLS 8u
+#define TLM_DALY_N_TEMPS 1u
 
 #endif /* TLM_TEST_PARAMS */
 

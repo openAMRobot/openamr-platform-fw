@@ -6,6 +6,8 @@
  * Two periodic lines (README, "Console"):
  *   "st"  every report period, at most TLM_STATUS_LINE_MAX characters: the
  *         values that change from period to period and the counters;
+ *   "ax"  in every other period, right after "st", at most TLM_SLOW_LINE_MAX
+ *         characters: CTL-017 lift (CAN3) and Daly BMS (CAN2);
  *   "sl"  every TLM_SLOW_EVERY periods, right after that period's "st", at
  *         most TLM_SLOW_LINE_MAX characters: the rarely changing fields, in
  *         two parts that alternate ("cfg" and "diag").
@@ -108,8 +110,39 @@ typedef struct {
     uint32_t rx_restarts;       /* successful restarts after a stop (first starts excluded) */
 } tlm_sensors_status_t;
 
+/* CAN2 (Daly BMS) and CAN3 (CTL-017 lift), receive only. */
+typedef struct {
+    bool can2_started, can3_started;
+    /* lift: values as the node sends them; unknown when not seen */
+    const char *lift_hb;        /* disabled, waiting, alive, lost */
+    tlm_opt_u64_t lift_hb_age_us;
+    const char *lift_nmt;       /* last NMT state of its heartbeat, or unknown */
+    const char *lift_state;     /* TPDO1 state name, or unknown */
+    tlm_opt_u64_t lift_pos;     /* TPDO1 position, 0.1 mm above the lower end */
+    tlm_opt_u64_t lift_age_us;  /* age of the last TPDO1 */
+    bool lift_flags_known;
+    uint32_t lift_flags;
+    bool lift_s2_known;         /* a TPDO2 was seen */
+    int32_t lift_vel;           /* 0.1 mm/s, positive up */
+    uint32_t lift_ma;
+    uint32_t lift_faults;       /* F01..F08 bits 0..7, F09 bit 8 */
+    /* BMS: "disabled" (no addresses), "locked" (protocol not confirmed: no
+     * value is reported), "usable" (values below) */
+    const char *bms;
+    bool bms_values_known;
+    uint32_t bms_mv;
+    int32_t bms_da;             /* 0.1 A, sign as daly_rx.h (direction not named) */
+    uint32_t bms_soc_pm;        /* per mille */
+    tlm_opt_u64_t bms_age_us;
+    /* counters */
+    uint32_t c2_rx, c3_rx, c2_lost, c3_lost; /* lost: hardware FIFO loss or queue full */
+    uint32_t c2_tx_ref, c3_tx_ref;           /* frames the transmit gate refused */
+    uint32_t lift_status, lift_gaps, lift_bad, lift_hb_n, lift_hb_lost, lift_emcy;
+    uint32_t bms_dec, bms_foreign, bms_bad, bms_unknown;
+} tlm_aux_status_t;
+
 /* Stack high-water marks in words (never used since start). */
-#define TLM_N_TASKS 5u
+#define TLM_N_TASKS 6u
 typedef struct {
     const char *name[TLM_N_TASKS];
     uint32_t free_words[TLM_N_TASKS];
@@ -122,6 +155,7 @@ typedef struct {
     const char *params;        /* "default" or "test" */
     tlm_drive_status_t drive;
     tlm_sensors_status_t sensors;
+    tlm_aux_status_t aux;
     uint32_t report_overruns;  /* periods the reporter missed */
     uint32_t lines_dropped;    /* lines that did not leave the console in time */
     uint32_t lines_too_long;   /* lines replaced by an "err" record (over their cap) */
@@ -166,5 +200,11 @@ typedef enum {
 tlm_slow_part_t tlm_slow_part(uint32_t seq);
 /* One slow line, newline included; same contract. */
 bool tlm_format_slow(const tlm_status_t *s, tlm_slow_part_t part, tlm_buf_t *b);
+/* "ax" line (CAN2 and CAN3: lift and BMS): in every period that carries no
+ * slow line (seq % TLM_SLOW_EVERY != 0), right after that period's "st", at
+ * most TLM_SLOW_LINE_MAX characters. A period therefore carries "st" plus at
+ * most one line of the 35 % cap, as before. */
+bool tlm_aux_due(uint32_t seq);
+bool tlm_format_aux(const tlm_status_t *s, tlm_buf_t *b);
 
 #endif /* TLM_STATUS_H */

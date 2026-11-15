@@ -47,9 +47,10 @@ static tlm_boot_id_t boot_record_update(void)
 }
 
 /* ---- static task memory ---- */
-static StaticTask_t s_tick_tcb, s_can1_tcb, s_sensors_tcb, s_reporter_tcb, s_idle_tcb;
+static StaticTask_t s_tick_tcb, s_can1_tcb, s_aux_tcb, s_sensors_tcb, s_reporter_tcb, s_idle_tcb;
 static StackType_t s_tick_stack[TLM_STACK_CAN1_TICK];
 static StackType_t s_can1_stack[TLM_STACK_CAN1_READER];
+static StackType_t s_aux_stack[TLM_STACK_CAN_AUX];
 static StackType_t s_sensors_stack[TLM_STACK_SENSORS];
 static StackType_t s_reporter_stack[TLM_STACK_REPORTER];
 static StackType_t s_idle_stack[configMINIMAL_STACK_SIZE];
@@ -80,8 +81,8 @@ void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
 }
 
 static TaskHandle_t s_task[TLM_N_TASKS];
-static const char *const s_task_name[TLM_N_TASKS] = {"can1_tick", "can1_rx", "sensors", "reporter",
-                                                     "idle"};
+static const char *const s_task_name[TLM_N_TASKS] = {"can1_tick", "can1_rx", "can_aux", "sensors",
+                                                     "reporter", "idle"};
 
 void tlm_stack_marks(tlm_stack_marks_t *out)
 {
@@ -130,6 +131,7 @@ int main(void)
 
     (void)tlm_console_init();
     tlm_can1_init();
+    tlm_can_aux_init();
     tlm_sensors_init();
     tlm_report_banner(rcc_rsr, &boot);
 
@@ -137,11 +139,13 @@ int main(void)
                                   TLM_PRIO_CAN1_TICK, s_tick_stack, &s_tick_tcb);
     s_task[1] = xTaskCreateStatic(tlm_can1_rx_task, "can1_rx", TLM_STACK_CAN1_READER, 0,
                                   TLM_PRIO_CAN1_READER, s_can1_stack, &s_can1_tcb);
-    s_task[2] = xTaskCreateStatic(tlm_sensors_task, "sensors", TLM_STACK_SENSORS, 0,
+    s_task[2] = xTaskCreateStatic(tlm_can_aux_rx_task, "can_aux", TLM_STACK_CAN_AUX, 0,
+                                  TLM_PRIO_CAN_AUX, s_aux_stack, &s_aux_tcb);
+    s_task[3] = xTaskCreateStatic(tlm_sensors_task, "sensors", TLM_STACK_SENSORS, 0,
                                   TLM_PRIO_SENSORS, s_sensors_stack, &s_sensors_tcb);
-    s_task[3] = xTaskCreateStatic(tlm_report_task, "reporter", TLM_STACK_REPORTER, 0,
+    s_task[4] = xTaskCreateStatic(tlm_report_task, "reporter", TLM_STACK_REPORTER, 0,
                                   TLM_PRIO_REPORTER, s_reporter_stack, &s_reporter_tcb);
-    s_task[4] = 0; /* idle: its handle exists once the scheduler has started */
+    s_task[5] = 0; /* idle: its handle exists once the scheduler has started */
     vTaskStartScheduler();
     tlm_fatal("scheduler_returned");
 }
