@@ -29,6 +29,9 @@
 #   tlm_lift_set "key" value         see LIFT below (state, flags, position, period_ms, ...)
 #   tlm_bms_set "key" value          see BMS below (period_ms, ...)
 #   (the aux stubs record every frame the image puts on CAN2 or CAN3: none is allowed at all)
+#   tlm_throttle_start ms            virtual time may not run ahead of wall time by more than one
+#                                    slice of ms (micro-ROS scenarios: the agent runs in wall time)
+#   tlm_time_report                  print one "TLM_TIME {json}" line: virtual and wall time
 #   tlm_stub_clock                   install the SystemCoreClock hook again (after "machine Reset",
 #                                    which drops bus hooks: see renode_telemetry.reset_steps)
 #   tlm_stub_cpu_report              print one "TLM_CPU {json}" line: executed instructions,
@@ -346,6 +349,42 @@ def mc_tlm_stub_cpu_report():
     virtual_s = machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds
     print 'TLM_CPU {"instructions":%d,"virtual_s":%.6f,"mips":%d}' % (
         int(cpu.ExecutedInstructions), virtual_s, int(cpu.PerformanceInMips))
+
+
+THROTTLE = {"generation": 0, "slice_us": 5000, "virtual_us": 0, "wall": None, "watch": None}
+
+
+def mc_tlm_throttle_start(slice_ms):
+    # Every slice of virtual time takes at least the same slice of wall time: the emulation thread
+    # sleeps at the end of a slice that ran faster. Renode may run slower than wall time, never
+    # faster by more than one slice. Scheduled actions do not survive "machine Reset".
+    from System.Diagnostics import Stopwatch
+    from System.Threading import Thread
+    machine = _machine()
+    THROTTLE["generation"] += 1
+    generation = THROTTLE["generation"]
+    THROTTLE["slice_us"] = int(slice_ms) * 1000
+    watch = Stopwatch.StartNew()
+    if THROTTLE["wall"] is None:
+        THROTTLE["wall"] = Stopwatch.StartNew()
+
+    def tick(_ts):
+        if generation != THROTTLE["generation"]:
+            return
+        THROTTLE["virtual_us"] += THROTTLE["slice_us"]
+        ahead_ms = THROTTLE["slice_us"] / 1000 - watch.ElapsedMilliseconds
+        if ahead_ms > 0:
+            Thread.Sleep(int(ahead_ms))
+        watch.Restart()
+        machine.ScheduleAction(TimeInterval.FromMicroseconds(UInt64(THROTTLE["slice_us"])), Action[TimeInterval](tick))
+    machine.ScheduleAction(TimeInterval.FromMicroseconds(UInt64(THROTTLE["slice_us"])), Action[TimeInterval](tick))
+
+
+def mc_tlm_time_report():
+    machine = _machine()
+    wall = THROTTLE["wall"]
+    print 'TLM_TIME {"virtual_s":%.6f,"wall_s":%.6f}' % (
+        machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds, (wall.ElapsedMilliseconds / 1000.0) if wall else 0.0)
 
 
 def mc_tlm_stub_set(key, value):

@@ -89,7 +89,14 @@
 #define TLM_STACK_CAN1_TICK 320u
 #define TLM_STACK_CAN1_READER 384u
 #define TLM_STACK_SENSORS 384u
+#ifdef TLM_UROS
+/* micro-ROS build: the reporter runs the client (rcl, rclc, XRCE serialisation).
+ * Source: measured in Renode: 469 words used of 3072 over two sessions ("stk" in
+ * the status topic, 15 Nov 2026); about twice that. */
+#define TLM_STACK_REPORTER 1024u
+#else
 #define TLM_STACK_REPORTER 640u
+#endif
 
 /* CAN1 receive queue between the FDCAN1 interrupt and can1_reader, in frames.
  * Source: this image; twice the generated RX FIFO 0 depth (16 elements). */

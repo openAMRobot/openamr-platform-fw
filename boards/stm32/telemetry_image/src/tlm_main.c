@@ -12,6 +12,9 @@
 #include "task.h"
 
 #include "tlm.h"
+#ifdef TLM_UROS
+#include "tlm_uros.h"
+#endif
 
 /* ---- boot record: survives a reset while the RAM stays powered ---- */
 /* RAM_D3 (0x38000000, 16 KiB) is declared by the generated linker script
@@ -134,6 +137,9 @@ int main(void)
     tlm_can_aux_init();
     tlm_sensors_init();
     tlm_report_banner(rcc_rsr, &boot);
+#ifdef TLM_UROS
+    tlm_uros_init(boot.id);
+#endif
 
     s_task[0] = xTaskCreateStatic(tlm_can1_tick_task, "can1_tick", TLM_STACK_CAN1_TICK, 0,
                                   TLM_PRIO_CAN1_TICK, s_tick_stack, &s_tick_tcb);

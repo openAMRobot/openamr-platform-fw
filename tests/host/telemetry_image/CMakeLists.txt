@@ -48,3 +48,11 @@ add_executable(test_format test_format.c ${IMG}/src/tlm_format.c)
 target_include_directories(test_format PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INC})
 target_compile_options(test_format PRIVATE ${WARN})
 add_test(NAME test_format COMMAND test_format)
+
+# Pure parts of the micro-ROS client: state machine, arena, published values.
+add_executable(test_uros test_uros.c ${IMG}/src/tlm_uros_sm.c ${IMG}/src/tlm_uros_alloc.c
+               ${IMG}/src/tlm_uros_msg.c ${IMG}/src/tlm_format.c)
+target_include_directories(test_uros PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INC})
+target_compile_options(test_uros PRIVATE ${WARN} -Wno-float-equal)
+target_link_libraries(test_uros PRIVATE m)
+add_test(NAME test_uros COMMAND test_uros)

@@ -9,6 +9,9 @@
 #include "oamr/reset_cause.h"
 #include "tlm.h"
 #include "tlm_build_info.h"
+#ifdef TLM_UROS
+#include "tlm_uros.h"
+#endif
 
 #define TLM_PROJECT_NAME "openamr-platform-fw telemetry_image"
 
@@ -37,6 +40,12 @@ void tlm_report_banner(uint32_t rcc_rsr, const tlm_boot_id_t *boot)
     tlm_buf_t b;
 
     s_boot = *boot;
+#ifdef TLM_UROS
+    /* USART3 carries the XRCE stream in this build: no banner. The status
+     * topic carries the commit, the parameter set and the boot id. */
+    (void)rc;
+    return;
+#endif
     tlm_buf_init(&b, s_line, sizeof(s_line));
     tlm_buf_str(&b, "\n{\"t\":\"boot\",");
     tlm_buf_kv_str(&b, "project", TLM_PROJECT_NAME);
@@ -142,6 +151,12 @@ void tlm_report_task(void *arg)
         tlm_can1_snapshot(&s_status.drive, now_us);
         tlm_sensors_snapshot(&s_status.sensors, now_us);
         tlm_can_aux_snapshot(&s_status.aux, now_us);
+#ifdef TLM_UROS
+        /* micro-ROS build: the same snapshot goes to the publishers, not to the console. */
+        tlm_uros_period(&s_status, s_status.sensors.poll_missed);
+        seq++;
+        continue;
+#endif
 
         tlm_buf_t b = format_line(LINE_STATUS, TLM_STATUS_LINE_MAX, "line_overflow", &too_long);
         if (!tlm_console_write(b.buf, b.len))

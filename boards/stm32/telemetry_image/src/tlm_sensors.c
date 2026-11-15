@@ -31,6 +31,7 @@
 #include "oamr/mb7060.h"
 #include "oamr/tfluna.h"
 #include "tlm.h"
+#include "tlm_sched.h"
 #include "tlm_uart_rx.h"
 
 extern UART_HandleTypeDef huart4, huart5, huart7, huart8, huart2, huart6; /* generated main.c */
@@ -203,9 +204,14 @@ static void restart_stopped_ports(void)
     }
 }
 
+/* Deadline accounting of the poll (tlm_sched.h), written by the sensors task
+ * under s_lock: a missed poll period is counted and reported, never made up. */
+static tlm_sched_stats_t s_poll;
+
 void tlm_sensors_task(void *arg)
 {
     (void)arg;
+    const TickType_t period = pdMS_TO_TICKS(TLM_SENSORS_POLL_MS);
     TickType_t wake = xTaskGetTickCount();
     for (;;)
     {
@@ -235,8 +241,15 @@ void tlm_sensors_task(void *arg)
                 }
             }
         }
+        s_poll.runs++;
         (void)xSemaphoreGive(s_lock);
-        (void)xTaskDelayUntil(&wake, pdMS_TO_TICKS(TLM_SENSORS_POLL_MS));
+        if (xTaskDelayUntil(&wake, period) == pdFALSE)
+        {
+            (void)xSemaphoreTake(s_lock, portMAX_DELAY);
+            wake = (TickType_t)tlm_sched_late(&s_poll, (uint32_t)wake, (uint32_t)xTaskGetTickCount(),
+                                              (uint32_t)period);
+            (void)xSemaphoreGive(s_lock);
+        }
     }
 }
 
@@ -262,6 +275,8 @@ void tlm_sensors_snapshot(tlm_sensors_status_t *out, uint64_t now_us)
     out->ring_lost_bytes = 0u;
     out->rx_start_failures = 0u;
     out->rx_restarts = 0u;
+    out->poll_runs = s_poll.runs;
+    out->poll_missed = s_poll.missed;
     for (unsigned i = 0u; i < N_PORTS; i++) {
         const port_t *p = &s_port[i];
         out->uart_errors += p->errors;

@@ -305,6 +305,7 @@ static uint32_t counters(tlm_buf_t *b, const tlm_status_t *s)
         {"rx_q_ovf", d->can_rx_q_ovf},
         {"rx_defer", d->can_rx_deferred},
         {"tick_miss", d->tick_missed},
+        {"sens_miss", s->sensors.poll_missed},
         {"sdo_ok", d->sdo_ok},
         {"sdo_to", d->sdo_timeouts},
         {"sdo_ab", d->sdo_aborts},

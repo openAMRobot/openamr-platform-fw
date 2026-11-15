@@ -108,6 +108,8 @@ typedef struct {
     uint32_t ring_lost_bytes;  /* bytes dropped or discarded by overflows, all ports */
     uint32_t rx_start_failures; /* HAL_UART_Receive_IT calls that did not return HAL_OK */
     uint32_t rx_restarts;       /* successful restarts after a stop (first starts excluded) */
+    uint32_t poll_runs;         /* sensors task polls */
+    uint32_t poll_missed;       /* poll deadlines that passed without a run on time (tlm_sched.h) */
 } tlm_sensors_status_t;
 
 /* CAN2 (Daly BMS) and CAN3 (CTL-017 lift), receive only. */
