@@ -138,3 +138,91 @@ int simref_ad_permit_snapshot(void *h, char *buf, int cap)
     P("]}");
     return o;
 }
+
+/* ---- whole controller, for host co-simulation with the Python emulators ---------------- */
+#include "simref/simref_ctrl.h"
+
+typedef void (*simref_ad_send_cb)(int bus, unsigned id, int len, const unsigned char *data);
+typedef struct {
+    simref_ctrl_t c;
+    simref_ad_send_cb cb;
+} ad_ctrl_t;
+
+EXPORT void *simref_ad_ctrl_new(int cause, long long now_us, simref_ad_send_cb cb);
+EXPORT void simref_ad_ctrl_frame(void *h, int bus, unsigned id, int len, const unsigned char *data, long long now_us);
+EXPORT void simref_ad_ctrl_step(void *h, long long now_us);
+EXPORT void simref_ad_ctrl_pin(void *h, int pin, int level, long long now_us);
+EXPORT void simref_ad_ctrl_session(void *h, unsigned epoch, long long now_us);
+EXPORT void simref_ad_ctrl_hb(void *h, unsigned epoch, long long now_us);
+EXPORT void simref_ad_ctrl_cmd(void *h, unsigned epoch, unsigned seq, double v, double w, long long now_us);
+EXPORT void simref_ad_ctrl_sup(void *h, int kind, unsigned epoch, unsigned seq, long long now_us);
+EXPORT void simref_ad_ctrl_lift(void *h, int op, int stop, long long now_us);
+EXPORT void simref_ad_ctrl_arms(void *h, int pose, long long now_us);
+EXPORT int simref_ad_ctrl_snapshot(void *h, char *buf, int cap);
+
+static void ad_send(void *ctx, simref_bus_t bus, const simref_frame_t *f)
+{
+    ad_ctrl_t *a = ctx;
+    if (a->cb)
+        a->cb((int)bus, f->id, f->len, f->data);
+}
+
+void *simref_ad_ctrl_new(int cause, long long now_us, simref_ad_send_cb cb)
+{
+    ad_ctrl_t *a = calloc(1, sizeof *a);
+    if (!a)
+        return NULL;
+    a->cb = cb;
+    simref_ctrl_cfg_t cfg;
+    simref_ctrl_default_cfg(&cfg);
+    cfg.boot_cause = (simref_cause_t)cause;
+    simref_ctrl_init(&a->c, &cfg, now_us, ad_send, a);
+    return a;
+}
+
+void simref_ad_ctrl_frame(void *h, int bus, unsigned id, int len, const unsigned char *data, long long now_us)
+{
+    simref_frame_t f = {.id = id, .len = (uint8_t)(len > 8 ? 8 : len)};
+    memcpy(f.data, data, f.len);
+    simref_ctrl_on_frame(&((ad_ctrl_t *)h)->c, (simref_bus_t)bus, &f, now_us);
+}
+void simref_ad_ctrl_step(void *h, long long now_us) { simref_ctrl_step(&((ad_ctrl_t *)h)->c, now_us); }
+void simref_ad_ctrl_pin(void *h, int pin, int level, long long now_us)
+{
+    simref_ctrl_set_pin(&((ad_ctrl_t *)h)->c, (simref_pin_t)pin, level != 0, now_us);
+}
+void simref_ad_ctrl_session(void *h, unsigned epoch, long long now_us) { simref_ctrl_host_session(&((ad_ctrl_t *)h)->c, epoch, now_us); }
+void simref_ad_ctrl_hb(void *h, unsigned epoch, long long now_us) { simref_ctrl_host_heartbeat(&((ad_ctrl_t *)h)->c, epoch, now_us); }
+void simref_ad_ctrl_cmd(void *h, unsigned epoch, unsigned seq, double v, double w, long long now_us)
+{
+    simref_ctrl_host_cmd(&((ad_ctrl_t *)h)->c, epoch, seq, v, w, now_us);
+}
+void simref_ad_ctrl_sup(void *h, int kind, unsigned epoch, unsigned seq, long long now_us)
+{
+    simref_ctrl_host_supervisory(&((ad_ctrl_t *)h)->c, (simref_sup_t)kind, epoch, seq, now_us);
+}
+void simref_ad_ctrl_lift(void *h, int op, int stop, long long now_us)
+{
+    simref_ctrl_host_lift(&((ad_ctrl_t *)h)->c, (uint8_t)op, (uint8_t)stop, now_us);
+}
+void simref_ad_ctrl_arms(void *h, int pose, long long now_us)
+{
+    simref_arm_t a = {(simref_pose_t)pose, false, false};
+    simref_ctrl_host_arms(&((ad_ctrl_t *)h)->c, &a, &a, (simref_pose_t)pose, now_us);
+}
+
+int simref_ad_ctrl_snapshot(void *h, char *buf, int cap)
+{
+    const simref_ctrl_t *c = &((ad_ctrl_t *)h)->c;
+    int o = 0;
+    P("{\"state\":\"%s\",\"motor\":\"%s\",\"phase\":\"%s\",\"detail\":\"%s\",\"sent\":[%d,%d],\"act\":[%d,%d],"
+      "\"permit\":%s,\"permit_reason\":\"%s\",\"first_reason\":\"%s\",\"log_n\":%u,\"last\":\"%s\",\"enable_sequences\":%u,"
+      "\"lift_nmt\":%u,\"x\":%.4f,\"spec_errors\":%u}",
+      simref_state_name(c->sm.state), c->sm.motor_follow ? "FOLLOW_CMD" : "ZERO", simref_dl_phase_name(c->drive.phase),
+      simref_dl_detail_name(c->drive.detail), c->drive.sent_rpm[0], c->drive.sent_rpm[1], c->drive.act_rpm10[0],
+      c->drive.act_rpm10[1], B(c->permit.permit), simref_permit_reason_name(c->permit.reason),
+      simref_reason_name(c->sm.first_reason), c->log_n,
+      c->log_n ? simref_reason_name(c->log[(c->log_n - 1) % SIMREF_CTRL_LOG].reason) : "NONE",
+      c->drive.enable_sequences, c->lift_nmt, c->x, c->spec_errors);
+    return o;
+}

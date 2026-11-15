@@ -104,8 +104,10 @@ static void boot_next(simref_drive_t *d, int64_t now);
 static void enter(simref_drive_t *d, simref_dl_phase_t p, int64_t now)
 {
     d->phase = p;
-    if (p == SIMREF_DL_BOOT_READ)
+    if (p == SIMREF_DL_BOOT_READ) {
         d->boot_ok = false;
+        d->detail = SIMREF_DD_NONE;
+    }
     d->step = (p == SIMREF_DL_IDLE || p == SIMREF_DL_ENABLED) ? -1 : 0;
     d->step_t0_us = now;
     d->next_cycle_us = now;
