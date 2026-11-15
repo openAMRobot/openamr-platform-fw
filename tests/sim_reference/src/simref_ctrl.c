@@ -471,7 +471,7 @@ static void process_wheels(simref_ctrl_t *c, int64_t now)
 #if SIMREF_OPT_C2_STOPPED_BY_TWIST
     bool st = fabs(c->v) < c->cfg.permit.stop_v_max && fabs(c->w) < c->cfg.permit.stop_w_max;
 #else
-    bool st = fabs(d->act_rpm10[0]) < 10 && fabs(d->act_rpm10[1]) < 10; /* C2 side a: below 1 rpm */
+    bool st = d->act_rpm10[0] > -10 && d->act_rpm10[0] < 10 && d->act_rpm10[1] > -10 && d->act_rpm10[1] < 10; /* C2 side a: below 1 rpm */
 #endif
     if (st && !c->stopped_raw)
         c->stopped_since_us = now;
