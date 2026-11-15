@@ -50,7 +50,7 @@ static oamr_daly_rx_result_t malformed(oamr_daly_rx_t *d)
 }
 
 oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_rx_frame_t *f,
-                                            uint32_t now_us)
+                                            uint64_t now_us)
 {
     if (!d->configured)
     {

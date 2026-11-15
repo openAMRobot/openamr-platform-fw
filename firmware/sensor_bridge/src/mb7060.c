@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 #include "oamr/mb7060.h"
 
+#include "oamr/mono_time.h"
+
 #include <string.h>
 
 #define CHAR_R 0x52u
@@ -124,8 +126,7 @@ bool oamr_mbseq_init(oamr_mbseq_t *s, const oamr_mbseq_config_t *cfg)
 {
     memset(s, 0, sizeof(*s));
     if (cfg == NULL || cfg->n_sensors == 0u || cfg->n_sensors > OAMR_MBSEQ_MAX_SENSORS ||
-        cfg->reading_timeout_us == 0u || cfg->reading_timeout_us > 0x7FFFFFFFu || !cfg->gap_set ||
-        cfg->gap_us > 0x7FFFFFFFu)
+        cfg->reading_timeout_us == 0u || !cfg->gap_set)
     {
         return false;
     }
@@ -134,7 +135,7 @@ bool oamr_mbseq_init(oamr_mbseq_t *s, const oamr_mbseq_config_t *cfg)
     return true;
 }
 
-oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint32_t now_us)
+oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint64_t now_us)
 {
     oamr_mbseq_decision_t d = {OAMR_MBSEQ_WAIT, 0u};
     if (!s->configured)
@@ -144,7 +145,7 @@ oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint32_t now_us)
     }
     if (s->waiting)
     {
-        if ((uint32_t)(now_us - s->trigger_us) >= s->cfg.reading_timeout_us)
+        if (oamr_mono_elapsed_us(now_us, s->trigger_us) >= s->cfg.reading_timeout_us)
         {
             s->waiting = false;
             s->done_us = now_us;
@@ -154,7 +155,7 @@ oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint32_t now_us)
         }
         return d;
     }
-    if (s->started && (uint32_t)(now_us - s->done_us) < s->cfg.gap_us)
+    if (s->started && oamr_mono_elapsed_us(now_us, s->done_us) < s->cfg.gap_us)
     {
         return d;
     }
@@ -167,7 +168,7 @@ oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint32_t now_us)
     return d;
 }
 
-void oamr_mbseq_triggered(oamr_mbseq_t *s, uint8_t sensor, uint32_t now_us)
+void oamr_mbseq_triggered(oamr_mbseq_t *s, uint8_t sensor, uint64_t now_us)
 {
     if (!s->configured || s->waiting || sensor >= s->cfg.n_sensors)
     {
@@ -179,7 +180,7 @@ void oamr_mbseq_triggered(oamr_mbseq_t *s, uint8_t sensor, uint32_t now_us)
     s->started = true;
 }
 
-bool oamr_mbseq_reading(oamr_mbseq_t *s, uint8_t sensor, uint32_t now_us)
+bool oamr_mbseq_reading(oamr_mbseq_t *s, uint8_t sensor, uint64_t now_us)
 {
     if (!s->configured || !s->waiting || sensor != s->current)
     {

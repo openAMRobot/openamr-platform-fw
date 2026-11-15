@@ -7,7 +7,7 @@
  * full-scale ranges and output data rate are caller parameters with no
  * default (an unset value leaves the driver NOT_CONFIGURED); the sample type
  * is local to this module so it builds without the #46 core headers; time
- * stamps use the 32-bit wrapping microsecond clock of oamr/freshness.h; the
+ * stamps are application time (uint64_t microseconds, oamr/mono_time.h); the
  * scaling and temperature conversions are pure functions with tests; a NULL
  * transfer or delay hook is rejected instead of called.
  *
@@ -28,6 +28,24 @@
  * returned as data. It is counted, and each valid sample is handed out once
  * (oamr_icm_take_sample), so an old reading is never published as new.
  * Axes are in the sensor frame; no remap (imu_link carries the rotation).
+ *
+ * Configuration writes are permitted. oamr_icm_init() writes DEVICE_CONFIG,
+ * INT_CONFIG, INT_CONFIG1, INT_SOURCE0, GYRO_CONFIG0, ACCEL_CONFIG0,
+ * PWR_MGMT0 and REG_BANK_SEL of this sensor, and nothing else. They differ
+ * from drive writes (CANopen controlword 6040h, target velocity 60FFh, NMT,
+ * any SDO download), which this repository's agents never author, because:
+ *   - they only set how this sensor measures and reports (range, data rate,
+ *     power mode, interrupt pin). No actuator, brake, contactor or output
+ *     changes state, and nothing moves;
+ *   - an SPI write is addressed by this sensor's chip select, so it reaches
+ *     no other device; it is not a bus message that a drive could act on;
+ *   - the six configuration registers written in the init sequence are read
+ *     back and a mismatch fails init with CONFIG_MISMATCH, so a wrong setting
+ *     is reported, not used (the soft reset is checked by re-reading
+ *     WHO_AM_I);
+ *   - the IMU is not a safety input (AGENTS.md: functional telemetry is
+ *     never safety evidence); a wrong configuration gives wrong or missing
+ *     IMU data, which consumers already treat as UNKNOWN.
  */
 #ifndef OAMR_ICM42688_H
 #define OAMR_ICM42688_H
@@ -125,7 +143,7 @@ extern "C"
     {
         bool valid;
         uint32_t seq;      /* increments for every attempted read */
-        uint32_t stamp_us; /* caller's monotonic clock, wraps at 2^32 */
+        uint64_t stamp_us; /* application time (oamr/mono_time.h) */
         oamr_icm_stamp_source_t stamp_source;
         float gyro_rad_s[3]; /* sensor frame */
         float accel_m_s2[3]; /* sensor frame */
@@ -169,11 +187,11 @@ extern "C"
     /* Device access through the caller's SPI hook. */
     oamr_icm_result_t oamr_icm_init(oamr_icm_t *icm, const oamr_icm_spi_t *spi,
                                     const oamr_icm_config_t *cfg);
-    void oamr_icm_read_sample(oamr_icm_t *icm, uint32_t stamp_us, oamr_icm_stamp_source_t src);
+    void oamr_icm_read_sample(oamr_icm_t *icm, uint64_t stamp_us, oamr_icm_stamp_source_t src);
     /* Polling path while INT1 is not wired: reads INT_STATUS and, if data is
      * ready, the sample. Returns true if a sample read was attempted or the
      * status read failed. */
-    bool oamr_icm_poll(oamr_icm_t *icm, uint32_t now_us);
+    bool oamr_icm_poll(oamr_icm_t *icm, uint64_t now_us);
     /* Copies the sample only if it is new, valid and not yet taken. */
     bool oamr_icm_take_sample(oamr_icm_t *icm, oamr_icm_sample_t *out);
 

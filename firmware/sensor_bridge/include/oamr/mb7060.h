@@ -108,8 +108,8 @@ extern "C"
     typedef struct
     {
         uint8_t n_sensors;           /* 1 to 4; order is index 0, 1, ... */
-        uint32_t reading_timeout_us; /* trigger to frame; no default. TODO(Evans) */
-        uint32_t gap_us; /* end of one reading to next trigger; no default. TODO(Evans) */
+        uint64_t reading_timeout_us; /* trigger to frame; no default. TODO(Evans) */
+        uint64_t gap_us; /* end of one reading to next trigger; no default. TODO(Evans) */
         bool gap_set;    /* must be true: gap_us = 0 is a decision, not a default */
     } oamr_mbseq_config_t;
 
@@ -131,24 +131,25 @@ extern "C"
     {
         oamr_mbseq_config_t cfg;
         bool configured;
-        bool waiting;    /* a trigger is out and no frame or timeout yet */
-        bool started;    /* at least one trigger issued */
-        uint8_t current; /* sensor of the outstanding or last trigger */
-        uint32_t trigger_us;
-        uint32_t done_us; /* time the last reading completed or timed out */
+        bool waiting;        /* a trigger is out and no frame or timeout yet */
+        bool started;        /* at least one trigger issued */
+        uint8_t current;     /* sensor of the outstanding or last trigger */
+        uint64_t trigger_us; /* application time (oamr/mono_time.h) */
+        uint64_t done_us;    /* time the last reading completed or timed out */
         uint32_t timeouts[OAMR_MBSEQ_MAX_SENSORS];
         uint32_t late_frames; /* frames reported for a sensor that is not waited for */
     } oamr_mbseq_t;
 
     bool oamr_mbseq_init(oamr_mbseq_t *s, const oamr_mbseq_config_t *cfg);
-    /* What should happen at now_us. Call periodically. A TIMED_OUT decision is
+    /* What should happen at now_us (application time; a time earlier than the
+     * last trigger counts as no time elapsed). Call periodically. A TIMED_OUT decision is
      * returned once per trigger and moves the sequence on. */
-    oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint32_t now_us);
+    oamr_mbseq_decision_t oamr_mbseq_step(oamr_mbseq_t *s, uint64_t now_us);
     /* The caller pulsed the trigger of `sensor` at now_us (after a TRIGGER decision). */
-    void oamr_mbseq_triggered(oamr_mbseq_t *s, uint8_t sensor, uint32_t now_us);
+    void oamr_mbseq_triggered(oamr_mbseq_t *s, uint8_t sensor, uint64_t now_us);
     /* A sample was received for `sensor`. Returns false if that sensor was not
      * being waited for (the frame must then be ignored). */
-    bool oamr_mbseq_reading(oamr_mbseq_t *s, uint8_t sensor, uint32_t now_us);
+    bool oamr_mbseq_reading(oamr_mbseq_t *s, uint8_t sensor, uint64_t now_us);
 
 #ifdef __cplusplus
 }

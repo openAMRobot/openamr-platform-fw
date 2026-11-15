@@ -221,7 +221,7 @@ static void mark_bad(oamr_icm_t *icm)
     icm->counters.consecutive_bad++;
 }
 
-void oamr_icm_read_sample(oamr_icm_t *icm, uint32_t stamp_us, oamr_icm_stamp_source_t src)
+void oamr_icm_read_sample(oamr_icm_t *icm, uint64_t stamp_us, oamr_icm_stamp_source_t src)
 {
     uint8_t raw[14];
     oamr_icm_sample_t *s = &icm->latest;
@@ -246,7 +246,7 @@ void oamr_icm_read_sample(oamr_icm_t *icm, uint32_t stamp_us, oamr_icm_stamp_sou
     icm->counters.consecutive_bad = 0u;
 }
 
-bool oamr_icm_poll(oamr_icm_t *icm, uint32_t now_us)
+bool oamr_icm_poll(oamr_icm_t *icm, uint64_t now_us)
 {
     if (!icm->configured)
     {

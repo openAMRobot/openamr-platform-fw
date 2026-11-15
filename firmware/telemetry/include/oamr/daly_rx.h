@@ -94,28 +94,28 @@ extern "C"
         bool confirmed; /* copy of protocol_confirmed at decode time */
         /* 0x90 */
         bool soc_seen;
-        uint32_t soc_stamp_us;
+        uint64_t soc_stamp_us;
         float pack_voltage_v;
         float acquired_voltage_v; /* bytes 2..3; meaning differs between sources */
         float current_a;          /* signed, direction not named, see header */
         float soc_percent;
         /* 0x91 */
         bool cell_minmax_seen;
-        uint32_t cell_minmax_stamp_us;
+        uint64_t cell_minmax_stamp_us;
         uint16_t cell_max_mv;
         uint8_t cell_max_no;
         uint16_t cell_min_mv;
         uint8_t cell_min_no;
         /* 0x92 */
         bool temp_minmax_seen;
-        uint32_t temp_minmax_stamp_us;
+        uint64_t temp_minmax_stamp_us;
         int16_t temp_max_c;
         uint8_t temp_max_no;
         int16_t temp_min_c;
         uint8_t temp_min_no;
         /* 0x93 */
         bool mos_seen;
-        uint32_t mos_stamp_us;
+        uint64_t mos_stamp_us;
         uint8_t charge_state; /* raw: V1.2 says 0 stationary, 1 charge, 2 discharge */
         bool charge_mos_on;
         bool discharge_mos_on;
@@ -123,7 +123,7 @@ extern "C"
         uint32_t remaining_mah;
         /* 0x94 */
         bool status_seen;
-        uint32_t status_stamp_us;
+        uint64_t status_stamp_us;
         uint8_t n_cells_reported;
         uint8_t n_temps_reported;
         bool charger_present;
@@ -141,7 +141,7 @@ extern "C"
         uint8_t balance_raw[6];
         /* 0x98 */
         bool failure_seen;
-        uint32_t failure_stamp_us;
+        uint64_t failure_stamp_us;
         uint8_t failure_raw[8];
         bool any_level1;     /* any level-1 alarm in bytes 0..3 */
         bool any_level2;     /* any level-2 alarm in bytes 0..3 */
@@ -166,9 +166,10 @@ extern "C"
     } oamr_daly_rx_t;
 
     bool oamr_daly_rx_init(oamr_daly_rx_t *d, const oamr_daly_rx_config_t *cfg);
-    /* Feed every frame received on CAN2 with its local receipt time. */
+    /* Feed every frame received on CAN2 with its local receipt time
+     * (application time, oamr/mono_time.h). */
     oamr_daly_rx_result_t oamr_daly_rx_on_frame(oamr_daly_rx_t *d, const oamr_daly_rx_frame_t *f,
-                                                uint32_t now_us);
+                                                uint64_t now_us);
     /* Identifier a BMS response with this Data ID would carry (for filters). */
     uint32_t oamr_daly_rx_expected_id(const oamr_daly_rx_t *d, uint8_t data_id);
     /* True only when configured AND protocol_confirmed. A consumer must not use

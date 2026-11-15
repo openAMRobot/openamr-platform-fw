@@ -6,7 +6,7 @@
 bool oamr_fresh_init(oamr_fresh_t *f, const oamr_fresh_config_t *cfg)
 {
     memset(f, 0, sizeof(*f));
-    if (cfg == NULL || cfg->stale_after_us == 0u || cfg->stale_after_us > OAMR_FRESH_MAX_LIMIT_US)
+    if (cfg == NULL || cfg->stale_after_us == 0u)
     {
         return false;
     }
@@ -22,7 +22,7 @@ void oamr_fresh_reset(oamr_fresh_t *f)
     f->stamp_us = 0u;
 }
 
-void oamr_fresh_mark(oamr_fresh_t *f, uint32_t stamp_us)
+void oamr_fresh_mark(oamr_fresh_t *f, uint64_t stamp_us)
 {
     if (!f->configured)
     {
@@ -34,7 +34,7 @@ void oamr_fresh_mark(oamr_fresh_t *f, uint32_t stamp_us)
     f->samples++;
 }
 
-oamr_fresh_state_t oamr_fresh_classify(oamr_fresh_t *f, uint32_t now_us)
+oamr_fresh_state_t oamr_fresh_classify(oamr_fresh_t *f, uint64_t now_us)
 {
     if (!f->configured)
     {
@@ -48,8 +48,7 @@ oamr_fresh_state_t oamr_fresh_classify(oamr_fresh_t *f, uint32_t now_us)
     {
         return OAMR_FRESH_STALE;
     }
-    const uint32_t age = oamr_age_us(now_us, f->stamp_us);
-    if (age > OAMR_FRESH_MAX_LIMIT_US || age >= f->cfg.stale_after_us)
+    if (now_us < f->stamp_us || now_us - f->stamp_us >= f->cfg.stale_after_us)
     {
         f->expired = true;
         return OAMR_FRESH_STALE;
@@ -57,17 +56,12 @@ oamr_fresh_state_t oamr_fresh_classify(oamr_fresh_t *f, uint32_t now_us)
     return OAMR_FRESH_FRESH;
 }
 
-bool oamr_fresh_age(const oamr_fresh_t *f, uint32_t now_us, uint32_t *age_us)
+bool oamr_fresh_age(const oamr_fresh_t *f, uint64_t now_us, uint64_t *age_us)
 {
-    if (!f->configured || !f->has_sample)
+    if (!f->configured || !f->has_sample || now_us < f->stamp_us)
     {
         return false;
     }
-    const uint32_t age = oamr_age_us(now_us, f->stamp_us);
-    if (age > OAMR_FRESH_MAX_LIMIT_US)
-    {
-        return false;
-    }
-    *age_us = age;
+    *age_us = now_us - f->stamp_us;
     return true;
 }
