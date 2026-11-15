@@ -5,13 +5,25 @@
  *
  * Receives: SDO responses (580h + node) and heartbeats (700h + node); every
  * other identifier is rejected by the FDCAN1 filter.
- * Sends: SDO initiate-upload requests (byte 0 = 40h) issued by
- * oamr_co_upl_tick(), and nothing else. can1_send() checks every frame and
- * refuses anything that is not such a request, so no other frame can reach
- * the bus through this file even if a caller were added later.
+ * Sends: SDO initiate-upload requests issued by oamr_co_upl_tick(), through
+ * tlm_can1_tx() (src/tlm_can1_tx.c), which refuses every other frame.
  *
- * Reporting only: the heartbeat consumer and the timeouts change what the
- * status line says. Nothing here acts on a lost drive.
+ * Structure:
+ *   - FDCAN1 interrupt: takes at most TLM_CAN1_RX_MAX_PER_IRQ frames from RX
+ *     FIFO 0 per entry into the receive queue. Frames left in the FIFO are
+ *     taken on the next entry: the handler pends its own interrupt again
+ *     (tlm_can1_irq_end), so other interrupts of the same priority run in
+ *     between. Hardware FIFO loss (RF0L) and software queue overflow are
+ *     counted separately.
+ *   - can1_rx task: frame handling only. Blocks on the queue and feeds every
+ *     frame to the upload scheduler and the heartbeat consumer.
+ *   - can1_tick task: the periodic scheduler tick only, on vTaskDelayUntil
+ *     timing every TLM_CAN1_TICK_MS. A deadline found already passed is
+ *     counted and reported (tlm_sched.h); the tick then runs once and the
+ *     timing restarts from now, with no catch-up burst.
+ *
+ * Reporting only: the heartbeat consumer, the timeouts and the health state
+ * change what the console says. Nothing here acts on a lost drive.
  */
 #include "main.h"
 
@@ -25,11 +37,21 @@
 #include "oamr/co_upload_sched.h"
 #include "oamr/zlac_telemetry.h"
 #include "tlm.h"
+#include "tlm_can1_tx.h"
+#include "tlm_sched.h"
 
 extern FDCAN_HandleTypeDef hfdcan1; /* generated main.c */
 
 /* Objects read in a cycle; the order is the order of the task statement. */
-enum { OBJ_VEL_CH1 = 0, OBJ_VEL_CH2, OBJ_STATUSWORD, OBJ_FAULT, OBJ_RESOLUTION, OBJ_COUNT };
+enum
+{
+    OBJ_VEL_CH1 = 0,
+    OBJ_VEL_CH2,
+    OBJ_STATUSWORD,
+    OBJ_FAULT,
+    OBJ_RESOLUTION,
+    OBJ_COUNT
+};
 static const oamr_co_object_t s_objects[OBJ_COUNT] = {
     [OBJ_VEL_CH1] = {OAMR_ZLAC_OD_ACTUAL_VELOCITY, 0x01u},
     [OBJ_VEL_CH2] = {OAMR_ZLAC_OD_ACTUAL_VELOCITY, 0x02u},
@@ -38,7 +60,8 @@ static const oamr_co_object_t s_objects[OBJ_COUNT] = {
     [OBJ_RESOLUTION] = {OAMR_ZLAC_OD_SPEED_RESOLUTION, OAMR_ZLAC_OD_SPEED_RESOLUTION_SUB},
 };
 
-typedef struct {
+typedef struct
+{
     oamr_co_frame_t frame;
     uint64_t rx_us;
 } can1_rx_item_t;
@@ -51,74 +74,82 @@ static SemaphoreHandle_t s_lock;
 
 static oamr_co_upl_t s_upl;
 static oamr_co_hb_consumer_t s_hb;
-static bool s_started;
+static volatile bool s_started;
 static uint32_t s_last_seq[OBJ_COUNT];
+static tlm_sched_stats_t s_tick; /* written by can1_tick under s_lock */
 
-static volatile uint32_t s_rx, s_rx_lost;
-static uint32_t s_tx, s_tx_failed, s_tx_refused;
+/* Interrupt-side counters. */
+static volatile uint32_t s_rx;          /* frames taken from the FIFO */
+static volatile uint32_t s_rx_hw_lost;  /* RF0L: the hardware FIFO lost a frame */
+static volatile uint32_t s_rx_q_ovf;    /* the receive queue was full: frame dropped */
+static volatile uint32_t s_rx_deferred; /* entries that left frames for the next entry */
+static uint32_t s_irq_budget;           /* frames still allowed in this entry */
 
-/* ---- transmit: upload requests only ---- */
-static bool can1_send(void *ctx, const oamr_co_frame_t *f)
-{
-    (void)ctx;
-    const bool is_upload_request =
-        !f->extended && f->id == OAMR_CO_COB_SDO_RX_BASE + TLM_DRIVE_NODE_ID && f->dlc == 8u &&
-        f->data[0] == OAMR_CO_SDO_CCS_UPLOAD_INIT && f->data[4] == 0u && f->data[5] == 0u &&
-        f->data[6] == 0u && f->data[7] == 0u;
-    if (!is_upload_request) {
-        s_tx_refused++;
-        return false;
-    }
-    if (!s_started) {
-        s_tx_failed++;
-        return false;
-    }
-    FDCAN_TxHeaderTypeDef h = {0};
-    h.Identifier = f->id;
-    h.IdType = FDCAN_STANDARD_ID;
-    h.TxFrameType = FDCAN_DATA_FRAME;
-    h.DataLength = FDCAN_DLC_BYTES_8;
-    h.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-    h.BitRateSwitch = FDCAN_BRS_OFF;
-    h.FDFormat = FDCAN_CLASSIC_CAN;
-    h.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-    if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &h, f->data) != HAL_OK) {
-        s_tx_failed++;
-        return false;
-    }
-    s_tx++;
-    return true;
-}
-
-/* ---- receive: FDCAN1 interrupt (priority 5, generated MSP) ---- */
-void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+/* ---- receive: FDCAN1 interrupt 0 (priority 5, generated MSP) ---- */
+static BaseType_t rx_take(FDCAN_HandleTypeDef *hfdcan)
 {
     BaseType_t woken = pdFALSE;
-    if (hfdcan != &hfdcan1) {
-        return;
-    }
-    if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_MESSAGE_LOST) != 0u) {
-        s_rx_lost++;
-    }
-    if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0u) {
-        FDCAN_RxHeaderTypeDef h;
-        can1_rx_item_t item;
-        while (HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0) > 0u &&
-               HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &h, item.frame.data) == HAL_OK) {
-            if (h.RxFrameType != FDCAN_DATA_FRAME || h.FDFormat != FDCAN_CLASSIC_CAN) {
-                continue;
-            }
-            item.frame.id = h.Identifier;
-            item.frame.extended = h.IdType == FDCAN_EXTENDED_ID;
-            item.frame.dlc = (uint8_t)h.DataLength; /* classic CAN: FDCAN_DLC_BYTES_0..8 are 0..8 */
-            item.rx_us = tlm_time_us();
-            s_rx++;
-            if (xQueueSendFromISR(s_queue, &item, &woken) != pdTRUE) {
-                s_rx_lost++;
-            }
+    FDCAN_RxHeaderTypeDef h;
+    can1_rx_item_t item;
+    while (s_irq_budget > 0u && HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0) > 0u &&
+           HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &h, item.frame.data) == HAL_OK)
+    {
+        s_irq_budget--;
+        if (h.RxFrameType != FDCAN_DATA_FRAME || h.FDFormat != FDCAN_CLASSIC_CAN)
+        {
+            continue;
+        }
+        item.frame.id = h.Identifier;
+        item.frame.extended = h.IdType == FDCAN_EXTENDED_ID;
+        item.frame.dlc = (uint8_t)h.DataLength; /* classic CAN: FDCAN_DLC_BYTES_0..8 are 0..8 */
+        item.rx_us = tlm_time_us();
+        s_rx++;
+        if (xQueueSendFromISR(s_queue, &item, &woken) != pdTRUE)
+        {
+            s_rx_q_ovf++;
         }
     }
-    portYIELD_FROM_ISR(woken);
+    return woken;
+}
+
+void tlm_can1_irq_begin(void)
+{
+    s_irq_budget = TLM_CAN1_RX_MAX_PER_IRQ;
+}
+
+void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+{
+    if (hfdcan != &hfdcan1)
+    {
+        return;
+    }
+    if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_MESSAGE_LOST) != 0u)
+    {
+        s_rx_hw_lost++;
+    }
+    if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0u)
+    {
+        portYIELD_FROM_ISR(rx_take(hfdcan));
+    }
+}
+
+void tlm_can1_irq_end(void)
+{
+    if (!s_started)
+    {
+        return;
+    }
+    /* Frames left from an earlier entry (the new-message flag is already
+     * cleared for them) are taken with what is left of this entry's budget. */
+    if (HAL_FDCAN_GetRxFifoFillLevel(&hfdcan1, FDCAN_RX_FIFO0) > 0u)
+    {
+        portYIELD_FROM_ISR(rx_take(&hfdcan1));
+    }
+    if (HAL_FDCAN_GetRxFifoFillLevel(&hfdcan1, FDCAN_RX_FIFO0) > 0u)
+    {
+        s_rx_deferred++;
+        HAL_NVIC_SetPendingIRQ(FDCAN1_IT0_IRQn); /* next entry takes the rest */
+    }
 }
 
 static bool can1_start(void)
@@ -130,16 +161,20 @@ static bool can1_start(void)
     filter.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
     filter.FilterID1 = OAMR_CO_COB_SDO_TX_BASE + TLM_DRIVE_NODE_ID;
     filter.FilterID2 = OAMR_CO_COB_HEARTBEAT_BASE + TLM_DRIVE_NODE_ID;
-    if (HAL_FDCAN_ConfigFilter(&hfdcan1, &filter) != HAL_OK) {
+    if (HAL_FDCAN_ConfigFilter(&hfdcan1, &filter) != HAL_OK)
+    {
         return false;
     }
     if (HAL_FDCAN_ConfigGlobalFilter(&hfdcan1, FDCAN_REJECT, FDCAN_REJECT, FDCAN_REJECT_REMOTE,
-                                     FDCAN_REJECT_REMOTE) != HAL_OK) {
+                                     FDCAN_REJECT_REMOTE) != HAL_OK)
+    {
         return false;
     }
     if (HAL_FDCAN_ActivateNotification(&hfdcan1,
-                                       FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST,
-                                       0u) != HAL_OK) {
+                                       FDCAN_IT_RX_FIFO0_NEW_MESSAGE |
+                                           FDCAN_IT_RX_FIFO0_MESSAGE_LOST,
+                                       0u) != HAL_OK)
+    {
         return false;
     }
     return HAL_FDCAN_Start(&hfdcan1) == HAL_OK; /* normal mode, generated bit timing */
@@ -151,8 +186,8 @@ void tlm_can1_init(void)
                                  &s_queue_cb);
     s_lock = xSemaphoreCreateMutexStatic(&s_lock_cb);
 
-    /* An unset parameter leaves its module NOT_CONFIGURED: it then sends and
-     * classifies nothing, and the status line reports the feature disabled. */
+    /* An unset parameter leaves its module NOT_CONFIGURED or its criterion
+     * disabled: the status lines then report the feature disabled. */
     const oamr_co_upl_config_t upl_cfg = {
         .node_id = TLM_DRIVE_NODE_ID,
         .objects = s_objects,
@@ -160,7 +195,10 @@ void tlm_can1_init(void)
         .timeout_us = (TLM_SDO_TIMEOUT_SET != 0) ? TLM_SDO_TIMEOUT_US : 0u,
         .max_retries = TLM_SDO_RETRIES,
         .max_retries_set = TLM_SDO_RETRIES_SET != 0,
-        .send = can1_send,
+        .late_guard_us = (TLM_SDO_LATE_GUARD_SET != 0) ? TLM_SDO_LATE_GUARD_US : 0u,
+        .health_max_consecutive_protocol_errors = (TLM_SDO_HEALTH_N_SET != 0) ? TLM_SDO_HEALTH_N : 0u,
+        .health_max_no_valid_cycle_us = (TLM_SDO_HEALTH_TIME_SET != 0) ? TLM_SDO_HEALTH_TIME_US : 0u,
+        .send = tlm_can1_tx,
         .send_ctx = 0,
     };
     (void)oamr_co_upl_init(&s_upl, &upl_cfg);
@@ -172,29 +210,43 @@ void tlm_can1_init(void)
     (void)oamr_co_hb_init(&s_hb, &hb_cfg, tlm_time_us());
 }
 
-void tlm_can1_task(void *arg)
+void tlm_can1_rx_task(void *arg)
 {
     (void)arg;
-    s_started = can1_start();
-
-    TickType_t deadline = xTaskGetTickCount();
-    for (;;) {
-        deadline += pdMS_TO_TICKS(TLM_CAN1_TICK_MS);
-        /* Handle frames as they arrive until the next tick is due. */
-        for (unsigned handled = 0u; handled < 2u * TLM_CAN1_RX_QUEUE_LEN; handled++) {
-            const TickType_t now = xTaskGetTickCount();
-            const TickType_t left = deadline - now;
-            const TickType_t wait = (left <= pdMS_TO_TICKS(TLM_CAN1_TICK_MS)) ? left : 0u;
-            can1_rx_item_t item;
-            if (xQueueReceive(s_queue, &item, wait) != pdTRUE) {
-                break;
-            }
-            (void)xSemaphoreTake(s_lock, portMAX_DELAY);
-            (void)oamr_co_upl_on_frame(&s_upl, &item.frame, item.rx_us);
-            (void)oamr_co_hb_on_frame(&s_hb, &item.frame, item.rx_us);
-            (void)xSemaphoreGive(s_lock);
+    for (;;)
+    {
+        can1_rx_item_t item;
+        if (xQueueReceive(s_queue, &item, portMAX_DELAY) != pdTRUE)
+        {
+            continue;
         }
         (void)xSemaphoreTake(s_lock, portMAX_DELAY);
+        (void)oamr_co_upl_on_frame(&s_upl, &item.frame, item.rx_us);
+        (void)oamr_co_hb_on_frame(&s_hb, &item.frame, item.rx_us);
+        (void)xSemaphoreGive(s_lock);
+    }
+}
+
+void tlm_can1_tick_task(void *arg)
+{
+    (void)arg;
+    const bool started = can1_start();
+    tlm_can1_tx_set_started(started);
+    s_started = started;
+
+    const TickType_t period = pdMS_TO_TICKS(TLM_CAN1_TICK_MS);
+    TickType_t wake = xTaskGetTickCount();
+    for (;;)
+    {
+        const BaseType_t on_time = xTaskDelayUntil(&wake, period);
+        (void)xSemaphoreTake(s_lock, portMAX_DELAY);
+        if (on_time == pdFALSE)
+        {
+            /* Late: count it, run once, restart the timing from now. */
+            wake = (TickType_t)tlm_sched_late(&s_tick, (uint32_t)wake,
+                                              (uint32_t)xTaskGetTickCount(), (uint32_t)period);
+        }
+        s_tick.runs++;
         const uint64_t now_us = tlm_time_us();
         oamr_co_upl_tick(&s_upl, now_us); /* at most one upload request */
         (void)oamr_co_hb_classify(&s_hb, now_us);
@@ -205,22 +257,35 @@ void tlm_can1_task(void *arg)
 /* ---- snapshot for the reporter ---- */
 static const char *validity_text(oamr_tlm_validity_t v, const oamr_co_sample_t *smp)
 {
-    switch (v) {
-    case OAMR_TLM_VALID: return "valid";
-    case OAMR_TLM_NOT_READ: return "not_read";
-    case OAMR_TLM_BAD_SIZE: return "bad_size";
-    case OAMR_TLM_STALE: return "stale";
-    case OAMR_TLM_UNCONFIRMED: return "unconfirmed";
+    switch (v)
+    {
+    case OAMR_TLM_VALID:
+        return "valid";
+    case OAMR_TLM_NOT_READ:
+        return "not_read";
+    case OAMR_TLM_BAD_SIZE:
+        return "bad_size";
+    case OAMR_TLM_STALE:
+        return "stale";
+    case OAMR_TLM_UNCONFIRMED:
+        return "unconfirmed";
     case OAMR_TLM_READ_FAILED:
-        switch (smp != 0 ? smp->status : OAMR_CO_SAMPLE_NONE) {
-        case OAMR_CO_SAMPLE_TIMEOUT: return "timeout";
-        case OAMR_CO_SAMPLE_ABORTED: return "aborted";
-        case OAMR_CO_SAMPLE_PROTOCOL: return "protocol";
-        case OAMR_CO_SAMPLE_TX_FAILED: return "tx_failed";
-        default: return "read_failed";
+        switch (smp != 0 ? smp->status : OAMR_CO_SAMPLE_NONE)
+        {
+        case OAMR_CO_SAMPLE_TIMEOUT:
+            return "timeout";
+        case OAMR_CO_SAMPLE_ABORTED:
+            return "aborted";
+        case OAMR_CO_SAMPLE_PROTOCOL:
+            return "protocol";
+        case OAMR_CO_SAMPLE_TX_FAILED:
+            return "tx_failed";
+        default:
+            return "read_failed";
         }
     case OAMR_TLM_NOT_CONFIGURED:
-    default: return "unset";
+    default:
+        return "unset";
     }
 }
 
@@ -238,13 +303,16 @@ static void fill_obj(tlm_obj_t *o, unsigned idx, const oamr_tlm_meta_t *meta, bo
     o->abort_known = false;
     o->abort_code = 0u;
     o->state = 0;
-    if (smp != 0) {
+    if (smp != 0)
+    {
         o->reads = smp->seq;
-        if (smp->status == OAMR_CO_SAMPLE_VALID && now_us >= smp->sample_us) {
+        if (smp->status == OAMR_CO_SAMPLE_VALID && now_us >= smp->sample_us)
+        {
             o->age_us.known = true;
             o->age_us.v = now_us - smp->sample_us;
         }
-        if (smp->status == OAMR_CO_SAMPLE_ABORTED) {
+        if (smp->status == OAMR_CO_SAMPLE_ABORTED)
+        {
             o->abort_known = true;
             o->abort_code = smp->abort_code;
         }
@@ -254,15 +322,38 @@ static void fill_obj(tlm_obj_t *o, unsigned idx, const oamr_tlm_meta_t *meta, bo
 
 static const char *nmt_text(const oamr_co_hb_consumer_t *hb)
 {
-    if (!hb->configured || !hb->seen) {
+    if (!hb->configured || !hb->seen)
+    {
         return "unknown";
     }
-    switch (hb->last_state) {
-    case OAMR_CO_NMT_BOOTUP: return "bootup";
-    case OAMR_CO_NMT_STOPPED: return "stopped";
-    case OAMR_CO_NMT_OPERATIONAL: return "operational";
-    case OAMR_CO_NMT_PRE_OPERATIONAL: return "pre_operational";
-    default: return "unknown";
+    switch (hb->last_state)
+    {
+    case OAMR_CO_NMT_BOOTUP:
+        return "bootup";
+    case OAMR_CO_NMT_STOPPED:
+        return "stopped";
+    case OAMR_CO_NMT_OPERATIONAL:
+        return "operational";
+    case OAMR_CO_NMT_PRE_OPERATIONAL:
+        return "pre_operational";
+    default:
+        return "unknown";
+    }
+}
+
+static const char *health_text(const oamr_co_upl_health_t *h)
+{
+    switch (h->state)
+    {
+    case OAMR_CO_UPL_HEALTH_STARTING:
+        return "starting";
+    case OAMR_CO_UPL_HEALTH_AVAILABLE:
+        return "available";
+    case OAMR_CO_UPL_HEALTH_UNAVAILABLE:
+        return "unavailable";
+    case OAMR_CO_UPL_HEALTH_DISABLED:
+    default:
+        return "disabled";
     }
 }
 
@@ -284,14 +375,24 @@ void tlm_can1_snapshot(tlm_drive_status_t *out, uint64_t now_us)
     /* heartbeat */
     out->hb_age_us.known = false;
     out->hb_age_us.v = 0u;
-    switch (oamr_co_hb_classify(&s_hb, now_us)) {
-    case OAMR_CO_HB_WAITING: out->hb_state = "waiting"; break;
-    case OAMR_CO_HB_ALIVE: out->hb_state = "alive"; break;
-    case OAMR_CO_HB_LOST: out->hb_state = "lost"; break;
+    switch (oamr_co_hb_classify(&s_hb, now_us))
+    {
+    case OAMR_CO_HB_WAITING:
+        out->hb_state = "waiting";
+        break;
+    case OAMR_CO_HB_ALIVE:
+        out->hb_state = "alive";
+        break;
+    case OAMR_CO_HB_LOST:
+        out->hb_state = "lost";
+        break;
     case OAMR_CO_HB_NOT_CONFIGURED:
-    default: out->hb_state = "disabled"; break;
+    default:
+        out->hb_state = "disabled";
+        break;
     }
-    if (s_hb.configured && s_hb.seen && now_us >= s_hb.last_seen_us) {
+    if (s_hb.configured && s_hb.seen && now_us >= s_hb.last_seen_us)
+    {
         out->hb_age_us.known = true;
         out->hb_age_us.v = now_us - s_hb.last_seen_us;
     }
@@ -315,26 +416,29 @@ void tlm_can1_snapshot(tlm_drive_status_t *out, uint64_t now_us)
                           now_us, &fault);
 
     fill_obj(&out->wheel_ch1, OBJ_VEL_CH1, &v1.meta,
-             v1.meta.validity == OAMR_TLM_VALID || v1.meta.validity == OAMR_TLM_UNCONFIRMED, v1.raw,
-             0u, now_us);
+             v1.meta.validity == OAMR_TLM_VALID || v1.meta.validity == OAMR_TLM_UNCONFIRMED,
+             v1.raw, 0u, now_us);
     fill_obj(&out->wheel_ch2, OBJ_VEL_CH2, &v2.meta,
-             v2.meta.validity == OAMR_TLM_VALID || v2.meta.validity == OAMR_TLM_UNCONFIRMED, v2.raw,
-             0u, now_us);
-    fill_obj(&out->statusword, OBJ_STATUSWORD, &sw.meta, sw.meta.validity == OAMR_TLM_VALID, sw.raw,
-             4u, now_us);
-    if (sw.meta.validity == OAMR_TLM_VALID) {
+             v2.meta.validity == OAMR_TLM_VALID || v2.meta.validity == OAMR_TLM_UNCONFIRMED,
+             v2.raw, 0u, now_us);
+    fill_obj(&out->statusword, OBJ_STATUSWORD, &sw.meta, sw.meta.validity == OAMR_TLM_VALID,
+             sw.raw, 4u, now_us);
+    if (sw.meta.validity == OAMR_TLM_VALID)
+    {
         out->statusword.state = oamr_402_state_name(sw.state);
     }
-    fill_obj(&out->fault, OBJ_FAULT, &fault.meta, fault.meta.validity == OAMR_TLM_VALID, fault.raw,
-             8u, now_us);
+    fill_obj(&out->fault, OBJ_FAULT, &fault.meta, fault.meta.validity == OAMR_TLM_VALID,
+             fault.raw, 8u, now_us);
     fill_obj(&out->resolution, OBJ_RESOLUTION, &res.meta, res.meta.validity == OAMR_TLM_VALID,
              res.raw, 0u, now_us);
 
     /* counters */
     out->sdo_ok = out->sdo_timeouts = out->sdo_aborts = out->sdo_protocol = 0u;
-    for (uint8_t i = 0u; i < OBJ_COUNT; i++) {
+    for (uint8_t i = 0u; i < OBJ_COUNT; i++)
+    {
         const oamr_co_upl_counters_t *c = oamr_co_upl_counters(&s_upl, i);
-        if (c != 0) {
+        if (c != 0)
+        {
             out->sdo_ok += c->ok;
             out->sdo_timeouts += c->timeouts;
             out->sdo_aborts += c->aborts;
@@ -343,14 +447,25 @@ void tlm_can1_snapshot(tlm_drive_status_t *out, uint64_t now_us)
     }
     out->sdo_unsolicited = s_upl.unsolicited;
     out->sdo_wrong_object = s_upl.wrong_object;
-    out->can_tx = s_tx;
-    out->can_tx_failed = s_tx_failed;
-    out->can_tx_refused = s_tx_refused;
+    out->sdo_late = s_upl.late;
+    const oamr_co_upl_health_t *h = oamr_co_upl_health(&s_upl);
+    out->sdo_health = health_text(h);
+    out->sdo_health_protocol_enabled = h->protocol_criterion_enabled;
+    out->sdo_health_cycle_enabled = h->cycle_criterion_enabled;
+    const tlm_can1_tx_counters_t tx = tlm_can1_tx_counters();
+    out->can_tx = tx.sent;
+    out->can_tx_failed = tx.failed;
+    out->can_tx_refused = tx.refused;
+    out->tick_runs = s_tick.runs;
+    out->tick_missed = s_tick.missed;
+    out->tick_late_max_ms = (uint32_t)(s_tick.late_max_ticks * 1000u / TLM_TICK_HZ);
 
     (void)xSemaphoreGive(s_lock);
 
     out->can_rx = s_rx;
-    out->can_rx_lost = s_rx_lost;
+    out->can_rx_hw_lost = s_rx_hw_lost;
+    out->can_rx_q_ovf = s_rx_q_ovf;
+    out->can_rx_deferred = s_rx_deferred;
 
     /* Bus state as the controller reports it. No recovery is attempted here. */
     FDCAN_ProtocolStatusTypeDef ps;
