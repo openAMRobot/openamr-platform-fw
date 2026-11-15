@@ -53,7 +53,25 @@ foreach(t test_codec test_hb_sched test_telemetry)
   add_test(NAME ${t} COMMAND ${t})
 endforeach()
 
+# The SDO expedited download encoder is a separate library. oamr_canopen (the
+# read-only library) does not link it; only its own codec test does.
+add_library(oamr_canopen_sdo_download STATIC
+  ${REPO_ROOT}/firmware/canopen/src/co_sdo_download.c)
+target_include_directories(oamr_canopen_sdo_download PUBLIC ${REPO_ROOT}/firmware/canopen/include)
+target_compile_options(oamr_canopen_sdo_download PRIVATE -Wpedantic)
+
+add_executable(test_sdo_download test_sdo_download.c tharness.c)
+target_include_directories(test_sdo_download PRIVATE ${REPO_ROOT}/firmware/canopen/include)
+target_link_libraries(test_sdo_download PRIVATE oamr_canopen_sdo_download)
+add_test(NAME test_sdo_download COMMAND test_sdo_download)
+
 # Guard: the read-only package must not reference restricted drive objects in
-# its production sources, and must not call the download encoder.
+# its production sources, must not name the download encoder outside its own
+# files, and the read-only archive must not define or reference that symbol.
+find_program(OAMR_NM NAMES ${CMAKE_NM} nm REQUIRED)
 add_test(NAME read_only_guard
-  COMMAND ${CMAKE_COMMAND} -DREPO_ROOT=${REPO_ROOT} -P ${CMAKE_CURRENT_SOURCE_DIR}/read_only_guard.cmake)
+  COMMAND ${CMAKE_COMMAND} -DREPO_ROOT=${REPO_ROOT}
+          -DRO_ARCHIVE=$<TARGET_FILE:oamr_canopen>
+          -DRO_SOURCES=$<JOIN:$<TARGET_PROPERTY:oamr_canopen,SOURCES>,|>
+          -DNM=${OAMR_NM}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/read_only_guard.cmake)

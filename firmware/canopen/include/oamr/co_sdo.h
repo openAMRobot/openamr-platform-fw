@@ -12,8 +12,10 @@
  * segment responses to an upload are reported as protocol errors rather
  * than as aborts; abort frames carry their own index and subindex.
  *
- * oamr_co_sdo_encode_download_expedited() exists as a tested codec function
- * only. Nothing in firmware/canopen or firmware/drive_telemetry calls it.
+ * This header and co_sdo.c hold no write path. The expedited download
+ * encoder lives in its own header and source (oamr/co_sdo_download.h,
+ * src/co_sdo_download.c) and its own library, which the read-only library
+ * does not link (tests/host/canopen/read_only_guard.cmake checks both).
  */
 #ifndef OAMR_CO_SDO_H
 #define OAMR_CO_SDO_H
@@ -87,11 +89,6 @@ bool oamr_co_sdo_decode_abort(const oamr_co_frame_t *f, uint32_t cob_id, uint16_
 
 /* Short English name of an abort code for logs; "unknown" for others. */
 const char *oamr_co_sdo_abort_name(uint32_t abort_code);
-
-/* Codec only. Initiate expedited download (write) request, size 1, 2 or 4.
- * Not called by any production code in this package; see file header. */
-bool oamr_co_sdo_encode_download_expedited(uint8_t node_id, uint16_t index, uint8_t subindex,
-                                           uint32_t value, uint8_t size, oamr_co_frame_t *out);
 
 #ifdef __cplusplus
 }
