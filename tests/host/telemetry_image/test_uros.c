@@ -68,7 +68,7 @@ static void destroys_on_loss_and_reconnects(void)
 {
     tlm_uros_sm_t m = running();
     unsigned failed = 0u;
-    while (m.state == TLM_UROS_RUN)
+    for (unsigned i = 0u; m.state == TLM_UROS_RUN && i < 10u * TLM_UROS_PING_PERIODS; i++)
     {
         if (tlm_uros_sm_step(&m) == TLM_UROS_DO_PUBLISH_PING)
         {
