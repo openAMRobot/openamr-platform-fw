@@ -40,8 +40,13 @@ for p in ros2/rcl_logging/rcl_logging_spdlog ros2/ros2_tracing/test_tracetools r
   [[ -d "$out/mcu_ws/src/$p" ]] && touch "$out/mcu_ws/src/$p/COLCON_IGNORE"
 done
 
-# A clean environment: no ROS installation may leak into either workspace.
+# A clean environment: no ROS installation may leak into either workspace, and nothing of the
+# calling CMake (this script runs from execute_process of the image's configure step, whose
+# environment carries the cross compiler) may reach the host workspace.
 unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH PYTHONPATH ROS_DISTRO ROS_VERSION LD_LIBRARY_PATH || true
+unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS ASMFLAGS CMAKE_TOOLCHAIN_FILE CMAKE_GENERATOR CMAKE_BUILD_TYPE \
+      CMAKE_EXPORT_COMPILE_COMMANDS MAKEFLAGS || true
+export CC=cc CXX=c++   # host compilers for the ament build tools; the client workspace sets its own
 
 (cd "$out/dev_ws" && colcon build --event-handlers console_cohesion- --packages-up-to ament_cmake_ros ament_cmake_gtest \
    --cmake-args -DBUILD_TESTING=OFF)

@@ -162,7 +162,7 @@ unanswered pings, retry. The client runs in the reporter task at priority 1, bel
 3) and sensor (2) tasks.
 
 Cost against `RenodeTest` (same parameters, both Debug, `arm-none-eabi-size`, 15 Nov 2026):
-flash +66 308 bytes (text + data 149 060 against 82 752), RAM +26 068 bytes (data + bss 47 384
+flash +66 596 bytes (text + data 149 348 against 82 752), RAM +26 188 bytes (data + bss 47 504
 against 21 316). By the link map: libmicroros 65.3 kB flash and 19.7 kB RAM; the client about
 6 kB flash and 6 kB RAM (arena 4 KiB, receive ring 1 KiB); the reporter stack is 1024 words in
 this build (640 otherwise). Measured in Renode over two sessions: arena high-water mark 2064 bytes,
