@@ -1,6 +1,15 @@
 /* SPDX-License-Identifier: MIT */
-/* 64-bit microsecond clock of the telemetry image: 1 ms ticks counted in the
- * SysTick interrupt plus the SysTick down-counter for the part of a tick. */
+/* Application time of the telemetry image (firmware/telemetry/include/oamr/
+ * mono_time.h): one monotonic uint64_t count of microseconds since HAL_Init().
+ *
+ * This file is the image's one place where a hardware counter becomes
+ * application time. The hardware counter is SysTick, a 24-bit down-counter
+ * that keeps its native width; its wraps are counted in software as 1 ms
+ * ticks in a 64-bit variable, and the counter value gives the part of the
+ * current tick. No other counter is read for time in this image: frame and
+ * byte stamps are taken with tlm_time_us() on receipt. A future source with
+ * its own counter (for example the 16-bit FDCAN time stamp) would be
+ * converted with oamr_mono_ext_update(), not here. */
 #include "main.h"
 #include "tlm.h"
 

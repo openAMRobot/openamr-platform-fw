@@ -67,6 +67,7 @@ void tlm_fatal(const char *what);
 #define INCLUDE_xTaskDelayUntil 1
 #define INCLUDE_xTaskGetSchedulerState 1
 #define INCLUDE_uxTaskGetStackHighWaterMark 1
+#define INCLUDE_xTaskGetIdleTaskHandle 1
 #define INCLUDE_vTaskSuspend 0
 #define INCLUDE_vTaskDelete 0
 #define INCLUDE_vTaskPrioritySet 0

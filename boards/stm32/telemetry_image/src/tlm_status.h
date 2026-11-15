@@ -1,7 +1,14 @@
 /* SPDX-License-Identifier: MIT */
 /*
- * Plain data of one status line and its formatter. No HAL, no RTOS: the
- * formatter is a pure function over these structures.
+ * Plain data of the console lines and their formatters. No HAL, no RTOS:
+ * the formatters are pure functions over these structures.
+ *
+ * Two periodic lines (README, "Console"):
+ *   "st"  every report period, at most TLM_STATUS_LINE_MAX characters: the
+ *         values that change from period to period and the counters;
+ *   "sl"  every TLM_SLOW_EVERY periods, right after that period's "st", at
+ *         most TLM_SLOW_LINE_MAX characters: the rarely changing fields, in
+ *         two parts that alternate ("cfg" and "diag").
  *
  * Rule for every field: a value that is not known carries known = false and
  * is printed as the JSON string "unknown". It is never printed as 0.
@@ -50,10 +57,19 @@ typedef struct {
     tlm_obj_t resolution;     /* 2026h:05 */
     bool bus_state_known;
     bool bus_off;
+    const char *sdo_health;   /* disabled, starting, available, unavailable */
+    bool sdo_health_protocol_enabled;
+    bool sdo_health_cycle_enabled;
     /* counters */
-    uint32_t can_rx, can_tx, can_tx_failed, can_tx_refused, can_rx_lost;
+    uint32_t can_rx, can_tx, can_tx_failed, can_tx_refused;
+    uint32_t can_rx_hw_lost;  /* hardware RX FIFO 0 lost a frame (RF0L events) */
+    uint32_t can_rx_q_ovf;    /* software receive queue full: frame dropped */
+    uint32_t can_rx_deferred; /* interrupt entries that left frames for the next entry */
     uint32_t sdo_ok, sdo_timeouts, sdo_aborts, sdo_protocol, sdo_unsolicited, sdo_wrong_object;
+    uint32_t sdo_late;
     uint32_t hb_count, hb_bootups, hb_lost_events, hb_malformed;
+    /* can1_tick deadline accounting (tlm_sched.h) */
+    uint32_t tick_runs, tick_missed, tick_late_max_ms;
 } tlm_drive_status_t;
 
 #define TLM_N_MB7060 4u
@@ -81,9 +97,23 @@ typedef struct {
 typedef struct {
     tlm_mb_status_t mb[TLM_N_MB7060];
     tlm_tfl_status_t tfl[TLM_N_TFLUNA];
+    /* reception state of each port, MB7060 ports first: ok, stopped, failed */
+    const char *rx_state[TLM_N_MB7060 + TLM_N_TFLUNA];
+    const char *port_name[TLM_N_MB7060 + TLM_N_TFLUNA];
+    bool rx_failed[TLM_N_MB7060 + TLM_N_TFLUNA];
     uint32_t uart_errors;
-    uint32_t ring_overflows;
+    uint32_t ring_overflows;   /* overflow events, all ports */
+    uint32_t ring_lost_bytes;  /* bytes dropped or discarded by overflows, all ports */
+    uint32_t rx_start_failures; /* HAL_UART_Receive_IT calls that did not return HAL_OK */
+    uint32_t rx_restarts;       /* successful restarts after a stop (first starts excluded) */
 } tlm_sensors_status_t;
+
+/* Stack high-water marks in words (never used since start). */
+#define TLM_N_TASKS 5u
+typedef struct {
+    const char *name[TLM_N_TASKS];
+    uint32_t free_words[TLM_N_TASKS];
+} tlm_stack_marks_t;
 
 typedef struct {
     tlm_boot_id_t boot;
@@ -94,6 +124,8 @@ typedef struct {
     tlm_sensors_status_t sensors;
     uint32_t report_overruns;  /* periods the reporter missed */
     uint32_t lines_dropped;    /* lines that did not leave the console in time */
+    uint32_t lines_too_long;   /* lines replaced by an "err" record (over their cap) */
+    tlm_stack_marks_t stacks;  /* slow line only */
 } tlm_status_t;
 
 /* ---- bounded text buffer ---- */
@@ -124,5 +156,15 @@ void tlm_format_disabled(tlm_buf_t *b, bool can_started, bool with_reason);
 /* One status line, newline included. Returns false when it did not fit;
  * the buffer content is then not a valid line and must not be sent. */
 bool tlm_format_status(const tlm_status_t *s, tlm_buf_t *b);
+/* Parts of the slow line, alternating. */
+typedef enum {
+    TLM_SLOW_CFG = 0, /* params, sdo, health, nmt, res, dis */
+    TLM_SLOW_DIAG = 1 /* tick, mb, rx, stk */
+} tlm_slow_part_t;
+/* Part of the slow line for the status line with this seq (seq is a
+ * multiple of TLM_SLOW_EVERY). */
+tlm_slow_part_t tlm_slow_part(uint32_t seq);
+/* One slow line, newline included; same contract. */
+bool tlm_format_slow(const tlm_status_t *s, tlm_slow_part_t part, tlm_buf_t *b);
 
 #endif /* TLM_STATUS_H */

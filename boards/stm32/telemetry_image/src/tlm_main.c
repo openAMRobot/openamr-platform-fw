@@ -47,7 +47,8 @@ static tlm_boot_id_t boot_record_update(void)
 }
 
 /* ---- static task memory ---- */
-static StaticTask_t s_can1_tcb, s_sensors_tcb, s_reporter_tcb, s_idle_tcb;
+static StaticTask_t s_tick_tcb, s_can1_tcb, s_sensors_tcb, s_reporter_tcb, s_idle_tcb;
+static StackType_t s_tick_stack[TLM_STACK_CAN1_TICK];
 static StackType_t s_can1_stack[TLM_STACK_CAN1_READER];
 static StackType_t s_sensors_stack[TLM_STACK_SENSORS];
 static StackType_t s_reporter_stack[TLM_STACK_REPORTER];
@@ -68,14 +69,47 @@ void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
     tlm_fatal("stack_overflow");
 }
 
+static TaskHandle_t s_task[TLM_N_TASKS];
+static const char *const s_task_name[TLM_N_TASKS] = {"can1_tick", "can1_rx", "sensors", "reporter",
+                                                     "idle"};
+
+void tlm_stack_marks(tlm_stack_marks_t *out)
+{
+    for (unsigned i = 0u; i < TLM_N_TASKS; i++)
+    {
+        out->name[i] = s_task_name[i];
+        const TaskHandle_t t = (i == TLM_N_TASKS - 1u) ? xTaskGetIdleTaskHandle() : s_task[i];
+        out->free_words[i] = t != 0 ? (uint32_t)uxTaskGetStackHighWaterMark(t) : 0u;
+    }
+}
+
+/*
+ * Fatal stop of this diagnostic image (stack overflow, failed assert, the
+ * scheduler returning). It prints one record and halts in a loop with
+ * interrupts disabled, so the record stays the last thing on the console for
+ * the person at the bench.
+ *
+ * The halt is a property of this diagnostic image only. It is NOT watchdog
+ * behaviour and must not be read as one: no watchdog (independent, window or a
+ * software one) is configured, fed or starved here, nothing resets the MCU,
+ * and no output is switched; the outputs keep the levels they had. Any
+ * reaction of the robot to a stopped controller belongs to the hardwired
+ * safety chain, not to this image.
+ *
+ * The console wait is bounded for the whole record (TLM_FATAL_TX_SPIN_MAX
+ * polls of the TX-ready flag in total), so a dead UART cannot hold the
+ * record back from the halt loop.
+ */
 void tlm_fatal(const char *what)
 {
     __disable_irq();
-    tlm_console_write_raw("\n{\"t\":\"fatal\",\"what\":\"");
-    tlm_console_write_raw(what);
-    tlm_console_write_raw("\"}\n");
-    for (;;) {
-        /* Stops here by design. This image has no restart mechanism. */
+    uint32_t budget = TLM_FATAL_TX_SPIN_MAX;
+    tlm_console_write_raw_bounded("\n{\"t\":\"fatal\",\"what\":\"", &budget);
+    tlm_console_write_raw_bounded(what, &budget);
+    tlm_console_write_raw_bounded("\"}\n", &budget);
+    for (;;)
+    {
+        /* Halts here by design (see above). */
     }
 }
 
@@ -89,12 +123,15 @@ int main(void)
     tlm_sensors_init();
     tlm_report_banner(rcc_rsr, &boot);
 
-    (void)xTaskCreateStatic(tlm_can1_task, "can1_reader", TLM_STACK_CAN1_READER, 0,
-                            TLM_PRIO_CAN1_READER, s_can1_stack, &s_can1_tcb);
-    (void)xTaskCreateStatic(tlm_sensors_task, "sensors", TLM_STACK_SENSORS, 0, TLM_PRIO_SENSORS,
-                            s_sensors_stack, &s_sensors_tcb);
-    (void)xTaskCreateStatic(tlm_report_task, "reporter", TLM_STACK_REPORTER, 0, TLM_PRIO_REPORTER,
-                            s_reporter_stack, &s_reporter_tcb);
+    s_task[0] = xTaskCreateStatic(tlm_can1_tick_task, "can1_tick", TLM_STACK_CAN1_TICK, 0,
+                                  TLM_PRIO_CAN1_TICK, s_tick_stack, &s_tick_tcb);
+    s_task[1] = xTaskCreateStatic(tlm_can1_rx_task, "can1_rx", TLM_STACK_CAN1_READER, 0,
+                                  TLM_PRIO_CAN1_READER, s_can1_stack, &s_can1_tcb);
+    s_task[2] = xTaskCreateStatic(tlm_sensors_task, "sensors", TLM_STACK_SENSORS, 0,
+                                  TLM_PRIO_SENSORS, s_sensors_stack, &s_sensors_tcb);
+    s_task[3] = xTaskCreateStatic(tlm_report_task, "reporter", TLM_STACK_REPORTER, 0,
+                                  TLM_PRIO_REPORTER, s_reporter_stack, &s_reporter_tcb);
+    s_task[4] = 0; /* idle: its handle exists once the scheduler has started */
     vTaskStartScheduler();
     tlm_fatal("scheduler_returned");
 }

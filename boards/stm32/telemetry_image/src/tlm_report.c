@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: MIT */
-/* Reporter of the telemetry image: boot banner and one JSON status line per
- * TLM_REPORT_PERIOD_MS on the console. */
+/* Reporter of the telemetry image: boot banner, one JSON status line ("st")
+ * per TLM_REPORT_PERIOD_MS and one slow line ("sl") every TLM_SLOW_EVERY
+ * periods on the console. Caps (tlm_params.h): "st" at most 60 % and "sl" at
+ * most 35 % of the characters 115200 baud carries in one period. */
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -10,11 +12,9 @@
 
 #define TLM_PROJECT_NAME "openamr-platform-fw telemetry_image"
 
-/* Banner buffer, and the cap of a status line. 115200 baud 8N1 carries 1152
- * characters per 100 ms period; a status line longer than the cap is replaced
- * by a short error record instead of being sent late. */
+/* Banner buffer. A periodic line longer than its cap is replaced by a short
+ * error record (and counted) instead of being sent late. */
 static char s_line[1280];
-#define TLM_STATUS_LINE_MAX 1100u
 static tlm_status_t s_status;
 static tlm_boot_id_t s_boot;
 
@@ -74,17 +74,46 @@ void tlm_report_banner(uint32_t rcc_rsr, const tlm_boot_id_t *boot)
     }
 }
 
+/* Format one periodic line into s_line within cap; on overflow, an error
+ * record of its own. Returns the buffer to send. */
+static tlm_buf_t format_line(bool slow, size_t cap, const char *what, uint32_t *too_long)
+{
+    tlm_buf_t b;
+    tlm_buf_init(&b, s_line, cap);
+    const bool ok = slow ? tlm_format_slow(&s_status, tlm_slow_part(s_status.seq), &b)
+                         : tlm_format_status(&s_status, &b);
+    if (!ok)
+    {
+        /* Never send a cut line: say so in a line of its own. */
+        (*too_long)++;
+        tlm_buf_init(&b, s_line, sizeof(s_line));
+        tlm_buf_str(&b, "{\"t\":\"err\",");
+        tlm_buf_kv_u64(&b, "boot", s_boot.id);
+        tlm_buf_str(&b, ",");
+        tlm_buf_kv_u64(&b, "seq", s_status.seq);
+        tlm_buf_str(&b, ",");
+        tlm_buf_kv_str(&b, "e", what);
+        /* "of":"sl" marks the record that replaces a slow line, so a host
+         * keeps the status line sequence apart from it. */
+        tlm_buf_str(&b, slow ? ",\"of\":\"sl\"}\n" : "}\n");
+    }
+    return b;
+}
+
 void tlm_report_task(void *arg)
 {
     (void)arg;
     uint32_t seq = 0u;
     uint32_t overruns = 0u;
     uint32_t dropped = 0u;
+    uint32_t too_long = 0u;
     TickType_t wake = xTaskGetTickCount();
 
-    for (;;) {
-        if (xTaskDelayUntil(&wake, pdMS_TO_TICKS(TLM_REPORT_PERIOD_MS)) == pdFALSE) {
-            overruns++; /* the previous line took longer than one period */
+    for (;;)
+    {
+        if (xTaskDelayUntil(&wake, pdMS_TO_TICKS(TLM_REPORT_PERIOD_MS)) == pdFALSE)
+        {
+            overruns++; /* the previous lines took longer than one period */
         }
         const uint64_t now_us = tlm_time_us();
         s_status.boot = s_boot;
@@ -93,22 +122,23 @@ void tlm_report_task(void *arg)
         s_status.params = TLM_PARAMS_NAME;
         s_status.report_overruns = overruns;
         s_status.lines_dropped = dropped;
+        s_status.lines_too_long = too_long;
         tlm_can1_snapshot(&s_status.drive, now_us);
         tlm_sensors_snapshot(&s_status.sensors, now_us);
 
-        tlm_buf_t b;
-        tlm_buf_init(&b, s_line, TLM_STATUS_LINE_MAX);
-        if (!tlm_format_status(&s_status, &b)) {
-            /* Never send a cut line: say so in a line of its own. */
-            tlm_buf_init(&b, s_line, sizeof(s_line));
-            tlm_buf_str(&b, "{\"t\":\"err\",");
-            tlm_buf_kv_u64(&b, "boot", s_boot.id);
-            tlm_buf_str(&b, ",");
-            tlm_buf_kv_u64(&b, "seq", seq);
-            tlm_buf_str(&b, ",\"e\":\"line_overflow\"}\n");
-        }
-        if (!tlm_console_write(b.buf, b.len)) {
+        tlm_buf_t b = format_line(false, TLM_STATUS_LINE_MAX, "line_overflow", &too_long);
+        if (!tlm_console_write(b.buf, b.len))
+        {
             dropped++;
+        }
+        if (seq % TLM_SLOW_EVERY == 0u)
+        {
+            tlm_stack_marks(&s_status.stacks);
+            b = format_line(true, TLM_SLOW_LINE_MAX, "slow_overflow", &too_long);
+            if (!tlm_console_write(b.buf, b.len))
+            {
+                dropped++;
+            }
         }
         seq++;
     }

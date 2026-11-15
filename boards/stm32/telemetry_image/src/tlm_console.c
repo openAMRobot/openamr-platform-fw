@@ -49,16 +49,24 @@ bool tlm_console_write(const char *data, size_t len)
                              TLM_CONSOLE_TX_TIMEOUT_MS) == HAL_OK;
 }
 
-void tlm_console_write_raw(const char *text)
+void tlm_console_write_raw_bounded(const char *text, uint32_t *budget)
 {
     if (!s_ready) {
         return;
     }
     while (*text != '\0') {
-        uint32_t guard = 2000000u; /* bounded wait so a dead UART cannot hide the stop loop */
-        while ((USART3->ISR & USART_ISR_TXE_TXFNF) == 0u && guard > 0u) {
-            guard--;
+        while ((USART3->ISR & USART_ISR_TXE_TXFNF) == 0u) {
+            if (*budget == 0u) {
+                return; /* the UART does not drain: give up, the caller halts */
+            }
+            (*budget)--;
         }
         USART3->TDR = (uint8_t)*text++;
     }
+}
+
+void tlm_console_write_raw(const char *text)
+{
+    uint32_t budget = TLM_FATAL_TX_SPIN_MAX;
+    tlm_console_write_raw_bounded(text, &budget);
 }

@@ -110,18 +110,24 @@ set(TLM_SOURCES
   src/tlm_time.c
   src/tlm_console.c
   src/tlm_can1.c
+  src/tlm_can1_tx.c
   src/tlm_sensors.c
-  src/tlm_report.c
-  src/tlm_format.c)
+  src/tlm_report.c)
+# Pure C files (no HAL, no RTOS): built with -Wconversion and by the host tests.
+set(TLM_PURE_SOURCES
+  src/tlm_format.c
+  src/tlm_uart_rx.c
+  src/tlm_sched.c)
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   ${TLM_SOURCES}
+  ${TLM_PURE_SOURCES}
   src/cubemx_main_reuse.c
   src/cubemx_it_reuse.c)
 # -Wconversion is left out for the files that include the vendor CMSIS and HAL
 # headers (their inline functions trip it); the pure formatter keeps it.
 set_source_files_properties(${TLM_SOURCES} PROPERTIES
   COMPILE_OPTIONS "-Wall;-Wextra;-Wshadow;-Wstrict-prototypes")
-set_source_files_properties(src/tlm_format.c PROPERTIES COMPILE_OPTIONS "${TLM_WARNINGS}")
+set_source_files_properties(${TLM_PURE_SOURCES} PROPERTIES COMPILE_OPTIONS "${TLM_WARNINGS}")
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/src

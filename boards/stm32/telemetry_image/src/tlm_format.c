@@ -3,6 +3,8 @@
  * heap, no printf. */
 #include "tlm_status.h"
 
+#include <string.h>
+
 #include "tlm_params.h"
 
 void tlm_buf_init(tlm_buf_t *b, char *storage, size_t cap)
@@ -118,6 +120,10 @@ void tlm_format_disabled(tlm_buf_t *b, bool can_started, bool with_reason)
         {TLM_HB_TIMEOUT_SET == 0, "hb", "TLM_HB_TIMEOUT_US unset (TODO(Evans), D-24 proposes 300 ms)"},
         {TLM_SDO_TIMEOUT_SET == 0 || TLM_SDO_RETRIES_SET == 0, "sdo",
          "TLM_SDO_TIMEOUT_US or TLM_SDO_RETRIES unset (TODO(Evans)): no upload is sent"},
+        {TLM_SDO_HEALTH_N_SET == 0, "sdo_health_n",
+         "TLM_SDO_HEALTH_N unset: protocol-error criterion of the SDO health disabled"},
+        {TLM_SDO_HEALTH_TIME_SET == 0, "sdo_health_t",
+         "TLM_SDO_HEALTH_TIME_US unset: valid-cycle criterion of the SDO health disabled"},
         {TLM_DRIVE_MAX_AGE_SET == 0, "drive_age", "TLM_DRIVE_MAX_AGE_US unset (TODO(Evans))"},
         {TLM_SPEED_RESOLUTION_SET == 0, "speed_res",
          "TLM_SPEED_RESOLUTION_REQUIRED unset: velocity stays unconfirmed"},
@@ -181,24 +187,24 @@ static void obj(tlm_buf_t *b, const char *key, const tlm_obj_t *o)
     put(b, '}');
 }
 
-static void drive(tlm_buf_t *b, const tlm_drive_status_t *d)
+static void bus_off(tlm_buf_t *b, const tlm_drive_status_t *d)
 {
-    tlm_buf_str(b, "\"hb\":{");
-    tlm_buf_kv_str(b, "st", d->hb_state);
-    put(b, ',');
-    tlm_buf_kv_opt(b, "age_us", d->hb_age_us);
-    put(b, ',');
-    tlm_buf_kv_str(b, "nmt", d->nmt);
-    tlm_buf_str(b, "},");
-    tlm_buf_kv_str(b, "sdo", d->sdo_enabled ? "on" : "disabled");
-    put(b, ',');
     tlm_buf_key(b, "bus_off");
     if (d->bus_state_known) {
         tlm_buf_str(b, d->bus_off ? "true" : "false");
     } else {
         qstr(b, "unknown");
     }
-    tlm_buf_str(b, ",\"wheel\":{");
+}
+
+/* Fast line: heartbeat and the four values that change every read. */
+static void drive(tlm_buf_t *b, const tlm_drive_status_t *d)
+{
+    tlm_buf_str(b, "\"hb\":{");
+    tlm_buf_kv_str(b, "st", d->hb_state);
+    put(b, ',');
+    tlm_buf_kv_opt(b, "age_us", d->hb_age_us);
+    tlm_buf_str(b, "},\"wheel\":{");
     obj(b, "ch1", &d->wheel_ch1);
     put(b, ',');
     obj(b, "ch2", &d->wheel_ch2);
@@ -206,22 +212,11 @@ static void drive(tlm_buf_t *b, const tlm_drive_status_t *d)
     obj(b, "sw", &d->statusword);
     put(b, ',');
     obj(b, "fault", &d->fault);
-    put(b, ',');
-    obj(b, "res", &d->resolution);
 }
 
-static void sensors(tlm_buf_t *b, const tlm_sensors_status_t *s)
+/* Fast line: the TF-Luna ports. A port whose reception failed says so. */
+static void sensors_fast(tlm_buf_t *b, const tlm_sensors_status_t *s)
 {
-    for (unsigned i = 0u; i < TLM_N_MB7060; i++) {
-        const tlm_mb_status_t *m = &s->mb[i];
-        tlm_buf_key(b, m->name);
-        /* Never armed (no trigger in this image): the range is always unknown. */
-        tlm_buf_str(b, "{\"v\":\"unknown\",");
-        tlm_buf_kv_opt(b, "age_us", m->age_us);
-        put(b, ',');
-        tlm_buf_kv_u64(b, "n", m->frames);
-        tlm_buf_str(b, "},");
-    }
     for (unsigned i = 0u; i < TLM_N_TFLUNA; i++) {
         const tlm_tfl_status_t *t = &s->tfl[i];
         tlm_buf_key(b, t->name);
@@ -245,6 +240,9 @@ static void sensors(tlm_buf_t *b, const tlm_sensors_status_t *s)
         tlm_buf_kv_opt(b, "age_us", t->age_us);
         put(b, ',');
         tlm_buf_kv_u64(b, "n", t->frames);
+        if (s->rx_failed[TLM_N_MB7060 + i]) {
+            tlm_buf_str(b, ",\"rx\":\"failed\"");
+        }
         put(b, '}');
         if (i + 1u < TLM_N_TFLUNA) {
             put(b, ',');
@@ -252,10 +250,24 @@ static void sensors(tlm_buf_t *b, const tlm_sensors_status_t *s)
     }
 }
 
-/* Counters: only the ones that are not zero are printed. A counter that is
- * absent from "cnt" is zero; this keeps the line inside what 115200 baud can
- * carry in one report period. Counters are never "unknown". */
-static void counters(tlm_buf_t *b, const tlm_status_t *s)
+static size_t digits(uint64_t v)
+{
+    size_t n = 1u;
+    while (v >= 10u) {
+        v /= 10u;
+        n++;
+    }
+    return n;
+}
+
+/* Counters: only the ones that are not zero are printed, and only as many as
+ * fit in the room the line has left under its cap (the closing "}}\n" and a
+ * possible "cnt_more" field are reserved). Without "cnt_more", a counter
+ * that is absent from "cnt" is zero. With "cnt_more":N, N non-zero counters
+ * did not fit and an absent counter is unknown for this line. Counters are
+ * never "unknown" themselves. Returns the number left out. */
+#define CNT_RESERVE (sizeof("},\"cnt_more\":99}\n") - 1u)
+static uint32_t counters(tlm_buf_t *b, const tlm_status_t *s)
 {
     const tlm_drive_status_t *d = &s->drive;
     uint32_t mb_bad = 0u;
@@ -270,21 +282,46 @@ static void counters(tlm_buf_t *b, const tlm_status_t *s)
         const char *k;
         uint32_t v;
     } c[] = {
-        {"rx", d->can_rx},              {"tx", d->can_tx},
-        {"tx_fail", d->can_tx_failed},  {"tx_ref", d->can_tx_refused},
-        {"rx_lost", d->can_rx_lost},    {"sdo_ok", d->sdo_ok},
-        {"sdo_to", d->sdo_timeouts},    {"sdo_ab", d->sdo_aborts},
-        {"sdo_pe", d->sdo_protocol},    {"sdo_un", d->sdo_unsolicited},
-        {"sdo_wo", d->sdo_wrong_object}, {"hb", d->hb_count},
-        {"hb_boot", d->hb_bootups},     {"hb_lost", d->hb_lost_events},
-        {"hb_bad", d->hb_malformed},    {"mb_bad", mb_bad},
-        {"tf_bad", tf_bad},             {"uart_err", s->sensors.uart_errors},
-        {"ring_ovf", s->sensors.ring_overflows}, {"overrun", s->report_overruns},
+        {"rx", d->can_rx},
+        {"tx", d->can_tx},
+        {"tx_fail", d->can_tx_failed},
+        {"tx_ref", d->can_tx_refused},
+        {"rx_hw_lost", d->can_rx_hw_lost},
+        {"rx_q_ovf", d->can_rx_q_ovf},
+        {"rx_defer", d->can_rx_deferred},
+        {"tick_miss", d->tick_missed},
+        {"sdo_ok", d->sdo_ok},
+        {"sdo_to", d->sdo_timeouts},
+        {"sdo_ab", d->sdo_aborts},
+        {"sdo_pe", d->sdo_protocol},
+        {"sdo_un", d->sdo_unsolicited},
+        {"sdo_wo", d->sdo_wrong_object},
+        {"sdo_late", d->sdo_late},
+        {"hb", d->hb_count},
+        {"hb_boot", d->hb_bootups},
+        {"hb_lost", d->hb_lost_events},
+        {"hb_bad", d->hb_malformed},
+        {"mb_bad", mb_bad},
+        {"tf_bad", tf_bad},
+        {"uart_err", s->sensors.uart_errors},
+        {"ring_ovf", s->sensors.ring_overflows},
+        {"ring_lost", s->sensors.ring_lost_bytes},
+        {"rx_start_fail", s->sensors.rx_start_failures},
+        {"rx_restart", s->sensors.rx_restarts},
+        {"overrun", s->report_overruns},
         {"dropped", s->lines_dropped},
+        {"too_long", s->lines_too_long},
     };
     bool first = true;
+    uint32_t left_out = 0u;
     for (size_t i = 0u; i < sizeof(c) / sizeof(c[0]); i++) {
         if (c[i].v == 0u) {
+            continue;
+        }
+        /* ,"key":value */
+        const size_t need = (first ? 0u : 1u) + strlen(c[i].k) + 3u + digits(c[i].v);
+        if (b->overflow || b->len + need + CNT_RESERVE > b->cap) {
+            left_out++;
             continue;
         }
         if (!first) {
@@ -293,26 +330,113 @@ static void counters(tlm_buf_t *b, const tlm_status_t *s)
         first = false;
         tlm_buf_kv_u64(b, c[i].k, c[i].v);
     }
+    return left_out;
+}
+
+static void header(tlm_buf_t *b, const char *type, const tlm_status_t *s)
+{
+    tlm_buf_str(b, "{\"t\":\"");
+    tlm_buf_str(b, type);
+    tlm_buf_str(b, "\",");
+    tlm_buf_kv_u64(b, "boot", s->boot.id);
+    put(b, ',');
+    tlm_buf_kv_u64(b, "seq", s->seq);
 }
 
 bool tlm_format_status(const tlm_status_t *s, tlm_buf_t *b)
 {
-    tlm_buf_str(b, "{\"t\":\"st\",");
-    tlm_buf_kv_u64(b, "boot", s->boot.id);
-    put(b, ',');
-    tlm_buf_kv_u64(b, "seq", s->seq);
+    header(b, "st", s);
     put(b, ',');
     tlm_buf_kv_u64(b, "up_us", s->uptime_us);
-    put(b, ',');
-    tlm_buf_kv_str(b, "params", s->params);
     tlm_buf_str(b, ",\"drive\":{");
     drive(b, &s->drive);
     tlm_buf_str(b, "},\"sens\":{");
-    sensors(b, &s->sensors);
+    sensors_fast(b, &s->sensors);
     tlm_buf_str(b, "},\"cnt\":{");
-    counters(b, s);
-    tlm_buf_str(b, "},\"dis\":[");
-    tlm_format_disabled(b, s->drive.can_started, false);
-    tlm_buf_str(b, "]}\n");
+    const uint32_t left_out = counters(b, s);
+    put(b, '}');
+    if (left_out != 0u) {
+        put(b, ',');
+        tlm_buf_kv_u64(b, "cnt_more", left_out);
+    }
+    tlm_buf_str(b, "}\n");
+    return !b->overflow;
+}
+
+/* MB7060 port in the slow line: [age_us, frames]. The range is never known
+ * in this image (no trigger), so only the arrival of frames is reported. */
+static void mb_slow(tlm_buf_t *b, const tlm_mb_status_t *m)
+{
+    tlm_buf_key(b, m->name);
+    put(b, '[');
+    if (m->age_us.known) {
+        tlm_buf_u64(b, m->age_us.v);
+    } else {
+        qstr(b, "unknown");
+    }
+    put(b, ',');
+    tlm_buf_u64(b, m->frames);
+    put(b, ']');
+}
+
+tlm_slow_part_t tlm_slow_part(uint32_t seq)
+{
+    return ((seq / TLM_SLOW_EVERY) % 2u) == 0u ? TLM_SLOW_CFG : TLM_SLOW_DIAG;
+}
+
+bool tlm_format_slow(const tlm_status_t *s, tlm_slow_part_t part, tlm_buf_t *b)
+{
+    const tlm_drive_status_t *d = &s->drive;
+    header(b, "sl", s);
+    if (part == TLM_SLOW_CFG) {
+        tlm_buf_str(b, ",\"part\":\"cfg\",");
+        tlm_buf_kv_str(b, "params", s->params);
+        put(b, ',');
+        tlm_buf_kv_str(b, "sdo", d->sdo_enabled ? "on" : "disabled");
+        put(b, ',');
+        tlm_buf_kv_str(b, "health", d->sdo_health);
+        put(b, ',');
+        tlm_buf_kv_str(b, "nmt", d->nmt);
+        put(b, ',');
+        bus_off(b, d);
+        put(b, ',');
+        obj(b, "res", &d->resolution);
+        tlm_buf_str(b, ",\"dis\":[");
+        tlm_format_disabled(b, d->can_started, false);
+        tlm_buf_str(b, "]}\n");
+        return !b->overflow;
+    }
+    tlm_buf_str(b, ",\"part\":\"diag\",\"tick\":[");
+    tlm_buf_u64(b, d->tick_runs);
+    put(b, ',');
+    tlm_buf_u64(b, d->tick_late_max_ms);
+    tlm_buf_str(b, "],\"mb\":{");
+    for (unsigned i = 0u; i < TLM_N_MB7060; i++) {
+        if (i != 0u) {
+            put(b, ',');
+        }
+        mb_slow(b, &s->sensors.mb[i]);
+    }
+    /* Only ports that are not receiving are listed. */
+    tlm_buf_str(b, "},\"rx\":{");
+    bool first = true;
+    for (unsigned i = 0u; i < TLM_N_MB7060 + TLM_N_TFLUNA; i++) {
+        if (s->sensors.rx_state[i] == 0 || s->sensors.rx_state[i][0] == 'o') { /* "ok" */
+            continue;
+        }
+        if (!first) {
+            put(b, ',');
+        }
+        first = false;
+        tlm_buf_kv_str(b, s->sensors.port_name[i], s->sensors.rx_state[i]);
+    }
+    tlm_buf_str(b, "},\"stk\":{");
+    for (unsigned i = 0u; i < TLM_N_TASKS; i++) {
+        if (i != 0u) {
+            put(b, ',');
+        }
+        tlm_buf_kv_u64(b, s->stacks.name[i] != 0 ? s->stacks.name[i] : "?", s->stacks.free_words[i]);
+    }
+    tlm_buf_str(b, "}}\n");
     return !b->overflow;
 }

@@ -33,6 +33,26 @@
  * Source: one report period; a line that cannot leave in one period is dropped. */
 #define TLM_CONSOLE_TX_TIMEOUT_MS TLM_REPORT_PERIOD_MS
 
+/* Console budget. 8N1 is 10 bit times per character, so one report period
+ * carries TLM_CONSOLE_BAUD / 10 * TLM_REPORT_PERIOD_MS / 1000 characters
+ * (1152 at 115200 baud and 100 ms). Source: task statement of this change:
+ * one status line takes at most 60 % of the period. The slow line carries
+ * the rarely changing fields once every TLM_SLOW_EVERY periods, directly
+ * after the status line of that period, and is capped at 35 %, so a period
+ * that carries both stays at or below 95 % of the wire time. */
+#define TLM_CONSOLE_CHARS_PER_PERIOD (TLM_CONSOLE_BAUD / 10u * TLM_REPORT_PERIOD_MS / 1000u)
+#define TLM_STATUS_LINE_MAX (TLM_CONSOLE_CHARS_PER_PERIOD * 60u / 100u) /* 691, newline included */
+#define TLM_SLOW_LINE_MAX (TLM_CONSOLE_CHARS_PER_PERIOD * 35u / 100u)   /* 403, newline included */
+/* Slow line every 5 periods. Its content is split into two parts that
+ * alternate ("cfg", then "diag"), so each part is refreshed once per second
+ * and each fits TLM_SLOW_LINE_MAX. Source: this image. */
+#define TLM_SLOW_EVERY 5u
+
+/* Bound of the console wait in tlm_fatal(): spins of the TX-ready poll for
+ * the whole fatal record, not per character. Source: this image; about
+ * 0.1 s at 550 MHz, far more than the 60-odd characters need at 115200. */
+#define TLM_FATAL_TX_SPIN_MAX 10000000u
+
 /* CAN1 nominal bit rate, for the banner only. The bit timing itself is the
  * generated MX_FDCAN1_Init() (prescaler 6, seg1 13, seg2 2 at 48 MHz).
  * Source: boards/stm32/OpenAMRobot/OpenAMRobot.ioc, README table (500 kbit/s). */
@@ -62,9 +82,11 @@
 /* Task priorities (fixed; larger is more urgent) and stack depths in words.
  * Source: this image. can1_reader must see a response before the next tick;
  * the reporter may be preempted while it prints. */
+#define TLM_PRIO_CAN1_TICK 4u
 #define TLM_PRIO_CAN1_READER 3u
 #define TLM_PRIO_SENSORS 2u
 #define TLM_PRIO_REPORTER 1u
+#define TLM_STACK_CAN1_TICK 320u
 #define TLM_STACK_CAN1_READER 384u
 #define TLM_STACK_SENSORS 384u
 #define TLM_STACK_REPORTER 640u
@@ -72,6 +94,19 @@
 /* CAN1 receive queue between the FDCAN1 interrupt and can1_reader, in frames.
  * Source: this image; twice the generated RX FIFO 0 depth (16 elements). */
 #define TLM_CAN1_RX_QUEUE_LEN 32u
+
+/* Frames taken from FDCAN1 RX FIFO 0 per interrupt entry; frames left in the
+ * FIFO are taken on the next entry, which the handler requests by pending
+ * its own interrupt again. Source: this image; a quarter of the 16-element
+ * FIFO keeps one entry short while two entries in a row still empty a FIFO
+ * that fills at the bus rate. */
+#define TLM_CAN1_RX_MAX_PER_IRQ 4u
+
+/* Restart attempts of a sensor UART whose reception stopped (a
+ * HAL_UART_Receive_IT call did not return HAL_OK). After this many failed
+ * attempts in a row the port is reported failed and left alone.
+ * Source: this image. */
+#define TLM_UART_RX_RESTART_MAX 3u
 
 /* ------------------------------------------------------------------------ */
 /* Open values: inactive unless TLM_TEST_PARAMS is defined                    */
@@ -91,6 +126,18 @@
 #define TLM_SDO_TIMEOUT_US 0u
 #define TLM_SDO_RETRIES_SET 0
 #define TLM_SDO_RETRIES 0u
+/* Guard time after a retry inside which a response is counted late
+ * (co_upload_sched.h, late_guard_us: no default). Used only with retries. */
+#define TLM_SDO_LATE_GUARD_SET 0
+#define TLM_SDO_LATE_GUARD_US 0u
+
+/* Overall SDO health (co_upload_sched.h): N consecutive protocol errors and
+ * the time without one complete valid cycle. No default; unset disables the
+ * criterion and the slow line and the banner say so. */
+#define TLM_SDO_HEALTH_N_SET 0
+#define TLM_SDO_HEALTH_N 0u
+#define TLM_SDO_HEALTH_TIME_SET 0
+#define TLM_SDO_HEALTH_TIME_US 0u
 
 /* Maximum age of a drive sample before it is reported STALE.
  * Source: none approved. zlac_telemetry.h: "TODO(Evans): tie to the scheduler cycle time". */
@@ -133,6 +180,16 @@
 #define TLM_SDO_TIMEOUT_US 40000u
 #define TLM_SDO_RETRIES_SET 1
 #define TLM_SDO_RETRIES 0u
+/* No retry in the test values, so the guard is not used (co_upload_sched.h). */
+#define TLM_SDO_LATE_GUARD_SET 0
+#define TLM_SDO_LATE_GUARD_US 0u
+
+/* Test only: 8 protocol errors in a row; one second, two passes of the
+ * five-object list at one request per 20 ms tick. */
+#define TLM_SDO_HEALTH_N_SET 1
+#define TLM_SDO_HEALTH_N 8u
+#define TLM_SDO_HEALTH_TIME_SET 1
+#define TLM_SDO_HEALTH_TIME_US 1000000u
 
 /* Test only: three passes over the five objects at one per 20 ms tick. */
 #define TLM_DRIVE_MAX_AGE_SET 1
