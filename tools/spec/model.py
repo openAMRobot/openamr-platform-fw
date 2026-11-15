@@ -107,8 +107,9 @@ class StateMachineModel:
         return True
 
     def _check_applicable(self, event: str) -> None:
+        # Same state as _row_matches: the current one (tick_semantics.applicability).
         for na in self.na:
-            if na["event"] == event and self.tick_start in na["states"]:
+            if na["event"] == event and self.state in na["states"]:
                 raise SpecError(f"event {event} is not applicable in {self.state} ({na['source']})")
 
     def _record(self, reason: str, prev_state: str) -> None:
@@ -207,6 +208,18 @@ class StateMachineModel:
         return {"motor": self.motor, "lamp": s["lamp"], "charge_request": s["charge_request"]}
 
     # ---- static table checks --------------------------------------------------------------
+    def priority_problems(self) -> list:
+        """Every priority entry except 'others' must be a declared event, once."""
+        problems = []
+        for name in self.priority:
+            if name != "others" and name not in self.spec["events"]:
+                problems.append(f"priority entry {name} is not a declared event")
+        if self.priority.count("others") != 1:
+            problems.append("priority list needs exactly one 'others'")
+        if len(self.priority) != len(set(self.priority)):
+            problems.append("priority list names an entry twice")
+        return problems
+
     def table_problems(self) -> list:
         """Every (state, external event) pair must be handled or declared not applicable."""
         problems = []
@@ -233,7 +246,117 @@ class StateMachineModel:
                 if not any(ev in _as_list(r["event"]) and (r["from"] == ALL or s in _as_list(r["from"]))
                            and not r.get("guard") and not r.get("when") for r in self.rows):
                     problems.append(f"no unconditional fallback for {ev} in {s}")
-        return problems
+        return problems + self.priority_problems()
+
+
+# --------------------------------------------------------------------------------------
+# Static row analysis: rows that can match at once, rows that can never fire
+# --------------------------------------------------------------------------------------
+def _row_keys(row: dict) -> dict:
+    """Constraints of a row as {('when'|'guard', key): value}."""
+    out = {("when", k): v for k, v in (row.get("when") or {}).items()}
+    out.update({("guard", k): v for k, v in (row.get("guard") or {}).items()})
+    return out
+
+
+def _situations(spec: dict) -> dict:
+    """(event, state) pairs that can occur, from the states reachable from the initial state.
+
+    External events occur in every reachable state where they are applicable. An internal
+    event occurs in the state a 'then' row leaves (its 'to', otherwise its 'from' state),
+    with the guard values of that row fixed, as updated by its 'set' and 'vars'.
+    Returns {(event, state): fixed}, iterated to a fixed point together with reachability.
+    """
+    states = [s["id"] for s in spec["states"]]
+    initial = next(s["id"] for s in spec["states"] if s.get("initial"))
+    na = {(n["event"], s) for n in spec.get("not_applicable", []) for s in n["states"]}
+    reach, sit = {initial}, {}
+    changed = True
+    while changed:
+        changed = False
+        for ev, meta in spec["events"].items():
+            if meta.get("internal"):
+                continue
+            for s in reach:
+                if (ev, s) not in na and (ev, s) not in sit:
+                    sit[(ev, s)] = {}
+                    changed = True
+        for (ev, s), fixed in list(sit.items()):
+            for row in spec["transitions"]:
+                if ev not in _as_list(row["event"]):
+                    continue
+                if row["from"] != ALL and s not in _as_list(row["from"]):
+                    continue
+                nxt = row.get("to", s)
+                if nxt not in reach:
+                    reach.add(nxt)
+                    changed = True
+                if fixed and not all((row.get("guard") or {}).get(k, v) == v for k, v in fixed.items()):
+                    continue
+                if row.get("then") and (row["then"], nxt) not in sit:
+                    keep = {**fixed, **(row.get("guard") or {}), **(row.get("set") or {}), **(row.get("vars") or {})}
+                    sit[(row["then"], nxt)] = keep
+                    changed = True
+    return {"states": states, "reachable": reach, "situations": sit}
+
+
+def _assignments(spec: dict, event: str, rows: list):
+    """Every combination of the parameter values and guard values the rows test."""
+    import itertools
+    params = (spec["events"][event].get("params") or {})
+    keys = sorted({k for r in rows for k in _row_keys(r)})
+    domains = []
+    for kind, k in keys:
+        if kind == "when":
+            domains.append(list(params.get(k, [None])))
+        else:
+            domains.append([True, False])
+    for combo in itertools.product(*domains):
+        yield dict(zip(keys, combo))
+
+
+def _matches(row: dict, assignment: dict) -> bool:
+    return all(assignment.get(k) == v for k, v in _row_keys(row).items())
+
+
+def row_analysis(spec: dict) -> dict:
+    """Exhaustive analysis of the transition table over every situation that can occur.
+
+    overlaps: pairs (earlier, later) of rows that both match one situation while neither
+      row's constraints contain the other's. Row order alone then decides; these are
+      listed for the owner. A later row whose constraints are a subset of the earlier
+      one's is its declared fallback and is not reported.
+    unreachable: rows that are never the first match in any situation that can occur
+      (shadowed by earlier rows, a state that cannot be reached, or an event that is not
+      applicable or never raised there).
+    no_row: situations where no row matches (the model would raise SpecError).
+    unreachable_states: states not reachable from the initial state.
+    """
+    info = _situations(spec)
+    rows = spec["transitions"]
+    first_hits, overlaps, no_row = set(), set(), []
+    for (ev, s), fixed in info["situations"].items():
+        cand = [r for r in rows if ev in _as_list(r["event"]) and (r["from"] == ALL or s in _as_list(r["from"]))]
+        for a in _assignments(spec, ev, cand):
+            if any(a.get(("guard", k), v) != v for k, v in fixed.items()):
+                continue  # excluded by the row that raised this internal event
+            hit = [r for r in cand if _matches(r, a)]
+            if not hit:
+                no_row.append((ev, s, tuple(sorted(a.items()))))
+                continue
+            first_hits.add(hit[0]["id"])
+            for i, r1 in enumerate(hit):
+                for r2 in hit[i + 1:]:
+                    k1, k2 = _row_keys(r1), _row_keys(r2)
+                    if k2.items() <= k1.items() or k1.items() <= k2.items():
+                        continue
+                    overlaps.add((r1["id"], r2["id"]))
+    return {
+        "overlaps": sorted(overlaps),
+        "unreachable": sorted({r["id"] for r in rows} - first_hits),
+        "no_row": no_row,
+        "unreachable_states": sorted(set(info["states"]) - info["reachable"]),
+    }
 
 
 # --------------------------------------------------------------------------------------

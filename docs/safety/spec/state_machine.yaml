@@ -12,7 +12,11 @@
 # 500 ms charge interlock window are folded into events (for example reset_hold_5s,
 # qualification result on reset_short). The owner's C code runs those timers; the adapter
 # (adapter.md) turns the events into raw input edges where his harness needs them.
-spec_version: 1
+# Version of this table. 1 was the first draft (f706d01, field spec_version). 2 renames the
+# priority entry charge_interlock_fault to the declared event charge_interlock, states the
+# tick semantics, judges applicability on the same state as row matching and lists C1 to C8
+# as open. Raise it on every change to states, events, priority, applicability or rows.
+version: 2
 source_revision: "rev 5 review copy update, 11 Nov 2026"
 
 states:
@@ -48,7 +52,10 @@ outputs:
   - {id: charge_request, values: ["ON", "OFF"], source: "rev5 2.1, 5.6"}
 
 # Same-tick priority: 5 s hold first, then the latching charger faults, then the rest.
-priority: [reset_hold_5s, wcm_fault, charge_interlock_fault, others]
+# Every name except "others" must be a declared event (checked by tests/spec/test_spec_checks.py).
+# Version 1 named "charge_interlock_fault", which is not an event: the model then ranked
+# charge_interlock with "others".
+priority: [reset_hold_5s, wcm_fault, charge_interlock, others]
 priority_source: "rev5 4 (same-tick priority), 4.1"
 
 # Reason codes named in rev 5 (numeric IDs assigned with the fault registry, group 18001).
@@ -98,11 +105,22 @@ events:
 # Model variables (not latches): charge_cmd_present (held charge command), wcm_active
 # (WCM_FAULT input level), reboot_pending (between T8 and the following boot), motor.
 
-# Events that do not apply in a state (judged on the state at the start of the tick).
+# Semantics within one tick (the model in tools/spec/model.py implements exactly this):
+tick_semantics:
+  order: "The events of one step are sorted by the priority list above. Events of the same rank (all of 'others') keep the order in which the vector lists them (stable sort)."
+  application: "Sequential. The events are applied one after the other in that order. Each event, and each internal follow-up event it raises with 'then', sees the state, latches and variables left by the event before it. Inputs are levels and are set once, before the first event of the step."
+  matching: "For each event the first row in file order whose 'from', 'when' and 'guard' match the current state, parameters and values fires (exactly one row per event)."
+  applicability: "An event is not applicable when the current state, the same state row matching uses, is listed for it under not_applicable. Version 1 judged applicability on the state at the start of the tick while rows matched on the current state; version 2 uses the current state for both."
+  outputs: "Outputs, reasons and results are read after the last event of the step."
+  order_dependence: "Within 'others' the result can depend on the order in which the vector lists the events. The combinations found by tests/spec/test_spec_checks.py are listed under findings.order_dependent; the owner's open question Q7 is to fix the order inside 'others'."
+  status: INTERPRETATION
+  source: "rev5 4 (same-tick priority), 4.1; adapter.md section 3"
+
+# Events that do not apply in a state (judged on the current state, see tick_semantics).
 # A vector that sends them there is a spec error.
 not_applicable:
-  - {event: charge_interlock, states: [LOCKED, RUN, INHIBITED, CHARGER_FAULT], source: "5.6: defined only during a charge attempt",
-     note: "H21 says 'a charge-interlock fault while already inhibited latches normally'; rev 5 defines the fault only in CHARGING. Owner question Q4."}
+  - {event: charge_interlock, states: [LOCKED, RUN, INHIBITED], source: "5.6: defined only during a charge attempt",
+     note: "H21 says 'a charge-interlock fault while already inhibited latches normally'; rev 5 defines the fault only in CHARGING. Owner question Q4. CHARGER_FAULT is not listed since version 2: with applicability on the current state, the interlock fault of the same tick as a WCM fault (4.1, H11) is applied after W1 has entered CHARGER_FAULT and is handled by K2. Consequence: a vector that reports charge_interlock in CHARGER_FAULT in a later tick is no longer a spec error; K2 latches it. Owner to confirm (finding F1)."}
   - {event: cmd_stale, states: [LOCKED, INHIBITED, CHARGING, CHARGER_FAULT], source: "T11: while the controller remains in RUN; outside RUN the motor is already zero"}
 
 # Transitions. Rows are tried in order; the first row whose 'from', 'when' (event
@@ -156,7 +174,7 @@ transitions:
   - {id: W3, from: '*', event: wcm_fault_clear, vars: {wcm_active: false}, source: "5.3"}
   - {id: K1, from: CHARGING, event: charge_interlock, to: CHARGER_FAULT, set: {interlock_latched: true}, reason: CHARGE_INTERLOCK, record: true, source: "5.6, H28"}
   - {id: K2, from: CHARGER_FAULT, event: charge_interlock, set: {interlock_latched: true}, reason: CHARGE_INTERLOCK, record: true, status: INTERPRETATION,
-     note: "reachable only in the tick that entered CHARGER_FAULT from CHARGING (both faults in one tick, 4.1, H11); applicability is judged on the state at tick start", source: "4.1, H11"}
+     note: "fires when the interlock fault is applied after W1 entered CHARGER_FAULT in the same tick (both faults in one tick, 4.1, H11); see finding F1", source: "4.1, H11"}
 
   # Drive (T10)
   - {id: D1, from: [RUN, INHIBITED], event: drive_fault, to: LOCKED, set: {reset_seen: false}, motor: ZERO, reason: DRIVE_FAULT, record: true, source: "T10a"}
@@ -221,46 +239,101 @@ transitions:
   - {id: Q2, from: '*', event: run_entry_check, source: "2.2: conditions not met, stay"}
 
 # Rows where rev 5 and a later proposal disagree, or rev 5 disagrees with itself.
-# Both sides kept; the model does not use these to choose.
+# Both sides kept; the model does not use these to choose. All are open in this version;
+# none is resolved by this table. Only the owner closes one (status: closed, with the ruling).
+open_conflicts: [C1, C2, C3, C4, C5, C6, C7, C8]
 conflicts:
   - id: C1
+    status: open
     topic: "ZLAC8015D link-loss and heartbeat values"
     side_a: {text: "0x2000 = 500 ms, 0x1017 = 200 counts", source: "rev 5 before the 11 Nov update; still in the text history"}
     side_b: {text: "0x2000 = 250 ms, 0x1017 = 100 ms, base heartbeat consumer 300 ms, all proposed", source: "decision D-24 (11 Nov), rev 5 update T10b, 5.4, 8"}
     open: "1017h unit (0.5 ms or 1 ms per count) settled by CAN capture; values provisional until B3"
     model_effect: none (timing is outside the event model)
   - id: C2
+    status: open
     topic: "base stopped definition for the lift permit"
     side_a: {text: "both wheels below 1 rpm continuously for 500 ms", source: "rev 5 5.5 and R4"}
     side_b: {text: "|v| < 0.01 m/s and |w| < 0.02 rad/s from both wheels, 500 ms; 1 rpm only as an encoder cross-check", source: "platform-fw #20, owner proposal of 12 and 13 Nov"}
     model_effect: "permit vectors use named parameters only"
   - id: C3
+    status: open
     topic: "WCM_FAULT re-asserted in LOCKED after acknowledgement"
     side_a: {text: "does not by itself block RUN (owner-confirmed)", source: "rev 5 5.3"}
     side_b: {text: "every other RUN condition of rev 3 row 2 holds; 4 events table: LOCKED 'Record; refuse charge command'", source: "rev 5 2.2, 4"}
     model_effect: "Q1 uses wcm_active as a RUN blocker only when the vector sets param wcm_blocks_run; default false following 5.3"
   - id: C4
+    status: open
     topic: "UI Resume rejected in INHIBITED"
     side_a: {text: "rejected, latch kept, stay INHIBITED", source: "rev 5 3 and command table"}
     side_b: {text: "otherwise the controller is in LOCKED and needs a physical RESET", source: "rev 5 2.3"}
     model_effect: "V3 follows side_a; vector h02 step marks CONFLICT"
   - id: C5
+    status: open
     topic: "charge-interlock fault outside CHARGING"
     side_a: {text: "a charge-interlock fault while already inhibited latches normally", source: "rev 5 H21"}
     side_b: {text: "the interlock fault is a failed transition during one charge attempt", source: "rev 5 5.3, 5.6"}
     model_effect: "not_applicable lists charge_interlock outside CHARGING"
   - id: C6
+    status: open
     topic: "Drive fault in CHARGING"
     side_a: {text: "Stay; record; RUN needs T10 recovery afterwards", source: "rev 5 4 events table, H30"}
     side_b: {text: "T10 rows apply 'any state' in the scope text only for INHIBITED and CHARGER_FAULT; CHARGING scope lists T4 to T7 only", source: "rev 5 4 scope by state"}
     model_effect: "D2 and D4 follow side_a (consistent with H30)"
   - id: C7
+    status: open
     topic: "Lift permit carried in RPDO1 or a dedicated cyclic PDO"
     side_a: {text: "the CTL-017 RPDO must carry the permit or use an equivalent dedicated permit PDO", source: "rev 5 5.5, R4"}
     side_b: {text: "a dedicated cyclic permit PDO is preferred; a heartbeat is not a permit; COB-ID, layout, period and timeout not decided", source: "platform-fw #20 (13 Nov)"}
     model_effect: "permit vectors are wire-agnostic"
   - id: C8
+    status: open
     topic: "approved arm poses"
     side_a: {text: "stowed or carry", source: "rev 5 5.5, platform-fw #20 owner proposal"}
     side_b: {text: "Build 1 has one safe pose, STOWED", source: "platform lead reply in platform-fw #20, 13 Nov"}
     model_effect: "permit vectors parameterise approved_poses; CARRY case marked CONFLICT"
+
+# Findings of the static and permutation checks (tests/spec/test_spec_checks.py). All are
+# open: the table is not changed to remove them; the owner rules. The tests fail when the
+# computed findings differ from this list, so a new overlap or order dependence is noticed.
+findings:
+  - id: F1
+    status: open
+    topic: "charge_interlock in CHARGER_FAULT is applicable since version 2"
+    text: "Applicability is now judged on the current state, like row matching. The interlock fault of the tick that also carries a WCM fault (4.1, H11) is applied in CHARGER_FAULT, so CHARGER_FAULT was removed from its not_applicable states and K2 handles it. A charge_interlock reported in CHARGER_FAULT in a later tick is therefore latched by K2 instead of being a spec error."
+    source: "4.1, 5.6, H11, H21 (Q4)"
+  - id: F2
+    status: open
+    topic: "charge_interlock in the same tick as reset_hold_5s"
+    text: "reset_hold_5s ranks first and R1 leaves CHARGING for LOCKED; charge_interlock is then not applicable and the model reports a spec error. Version 1 also had no row for it (no transition row in LOCKED). rev 5 does not say whether the interlock fault is still latched (it is cleared by the reboot that follows T8)."
+    source: "4 (same-tick priority), T8, 5.6"
+  # Row pairs that can match the same situation while neither row's constraints contain the
+  # other's. Row order decides (the earlier row fires). S1 and S2 are the session and sequence
+  # filters of 3.1 and are meant to come first; V1 and V2 overlap only if INHIBITED could be
+  # held with ui_stop clear, which no row produces (U1 is the only entry to INHIBITED).
+  - id: F3
+    status: open
+    topic: "rows that can match at once"
+    overlaps: [[S1, A1], [S1, G1], [S1, S2], [S1, V1], [S1, V2], [S1, X1], [S2, A1], [S2, G1], [S2, V1], [S2, V2], [S2, X1], [V1, V2]]
+    text: "An old-session replayed command matches S1 and S2; S1 fires (reason SESSION_OLD, not SEQ_REJECTED). Every other pair resolves to the filter row S1 or S2, or to V1 (rejection), by row order."
+    source: "3.1, 3"
+  - id: F4
+    status: open
+    topic: "rows that can never fire, states that cannot be reached"
+    unreachable_rows: []
+    unreachable_states: []
+    text: "None found over every situation reachable from the initial state (internal events with the guard values of the row that raised them). The analysis ignores the vector parameter wcm_blocks_run of Q1 (C3)."
+    source: "tests/spec/test_spec_checks.py"
+  # Order dependence inside 'others' (tick_semantics.order_dependence). Inputs used by the
+  # check: every condition input true except run_ok, which is false in a tick that carries
+  # estop_diag. In every combination of estop_diag, wcm_fault, session_lost and reset_short or
+  # reset_hold_5s, in every state, the final state, the outputs and motion admissibility are
+  # the same for every order. Only the pairs below change anything else.
+  - id: F5
+    status: open
+    topic: "same-tick order inside 'others' changes latches or the lock episode"
+    order_dependent:
+      - {pair: [estop_diag, reset_short], fields: [latches], text: "reset_short after estop_diag sets reset_seen again (P3); before it, E1 or E2 clears it"}
+      - {pair: [reset_short, session_lost], fields: [latches, reason_mask, first_reason], text: "reset_short first in LOCKED enters RUN for the rest of the tick (Q1), which ends the lock episode; session_lost then starts a new one. reset_seen also differs"}
+      - {pair: [estop_diag, session_lost], fields: [first_reason], text: "the first of the two becomes first_reason of the new lock episode"}
+    source: "4 (same-tick priority), 4.1, Q5, Q7"

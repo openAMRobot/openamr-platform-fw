@@ -94,6 +94,16 @@ code processes the raw inputs of one tick in a fixed internal order, the adapter
 that order the same effect. Vector `h34` checks this; open question Q7 in the report asks the
 owner to fix the order inside "others".
 
+The full rule is `tick_semantics` in `state_machine.yaml` (version 2): events are applied one
+after the other in that order; each event is matched, and judged applicable, against the state
+left by the event before it. Version 1 judged applicability on the state at the start of the
+tick while rows matched on the current state. `tests/spec/test_spec_checks.py` runs every order
+of E-stop diagnostic, WCM fault, RESET (short or 5 s) and session loss in every state: the final
+state, the outputs and motion admissibility never depend on the order; the latches and the lock
+episode do for three pairs inside "others", listed as finding F5. Rows that can match at once
+and rows that can never fire are listed as findings F3 and F4. The requirement to vector matrix
+is `requirements_matrix.md`.
+
 ## 4. Lift permit vectors
 
 `permit_base_*` drive the base controller's permit producer; `permit_ctl017_*` drive the
