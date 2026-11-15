@@ -351,7 +351,7 @@ def mc_tlm_stub_cpu_report():
         int(cpu.ExecutedInstructions), virtual_s, int(cpu.PerformanceInMips))
 
 
-THROTTLE = {"generation": 0, "slice_us": 5000, "virtual_us": 0, "wall": None, "watch": None}
+THROTTLE = {"generation": 0, "slice_us": 5000, "virtual_us": 0, "wall": None, "watch": None, "virtual_at_start": 0.0}
 
 
 def mc_tlm_throttle_start(slice_ms):
@@ -382,9 +382,14 @@ def mc_tlm_throttle_start(slice_ms):
 
 def mc_tlm_time_report():
     machine = _machine()
+    if THROTTLE["wall"] is None:
+        from System.Diagnostics import Stopwatch
+        THROTTLE["wall"] = Stopwatch.StartNew()   # first call starts the wall clock
+        THROTTLE["virtual_at_start"] = machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds
     wall = THROTTLE["wall"]
     print 'TLM_TIME {"virtual_s":%.6f,"wall_s":%.6f}' % (
-        machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds, (wall.ElapsedMilliseconds / 1000.0) if wall else 0.0)
+        machine.LocalTimeSource.ElapsedVirtualTime.TotalSeconds - THROTTLE.get("virtual_at_start", 0.0),
+        wall.ElapsedMilliseconds / 1000.0)
 
 
 def mc_tlm_stub_set(key, value):

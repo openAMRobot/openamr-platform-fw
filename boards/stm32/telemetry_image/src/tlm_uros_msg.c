@@ -46,6 +46,8 @@ void tlm_uros_values(const tlm_status_t *s, const tlm_uros_meta_t *meta, tlm_uro
     tlm_buf_str(&b, ",");
     tlm_buf_kv_u64(&b, "seq", s->seq);
     tlm_buf_str(&b, ",");
+    tlm_buf_kv_str(&b, "rec", s->boot.retained ? "retained" : "cold");
+    tlm_buf_str(&b, ",");
     tlm_buf_kv_u64(&b, "up_us", s->uptime_us);
     tlm_buf_str(&b, ",");
     tlm_buf_kv_str(&b, "commit", meta->commit);
@@ -61,6 +63,14 @@ void tlm_uros_values(const tlm_status_t *s, const tlm_uros_meta_t *meta, tlm_uro
     tlm_buf_kv_u64(&b, "tick_miss", s->drive.tick_missed);
     tlm_buf_str(&b, ",");
     tlm_buf_kv_u64(&b, "sens_miss", meta->sens_missed);
+    tlm_buf_str(&b, ",");
+    tlm_buf_kv_u64(&b, "tx", s->drive.can_tx);
+    tlm_buf_str(&b, ",");
+    tlm_buf_kv_u64(&b, "c2_rx", s->aux.c2_rx);
+    tlm_buf_str(&b, ",");
+    tlm_buf_kv_u64(&b, "c3_rx", s->aux.c3_rx);
+    tlm_buf_str(&b, ",");
+    tlm_buf_kv_u64(&b, "bms_dec", s->aux.bms_dec);
     tlm_buf_str(&b, ",");
     tlm_buf_kv_u64(&b, "arena", meta->arena_high_water);
     tlm_buf_str(&b, ",");

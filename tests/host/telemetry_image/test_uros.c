@@ -183,10 +183,35 @@ static void known_values_are_published(void)
     CHECK(fabsf(v.range_m[0] - 1.5f) < 1e-6f);
     CHECK(v.stamp_sec == 4u && v.stamp_nanosec == 200123000u);
     CHECK(v.status_len == strlen(v.status) && v.status_len < TLM_UROS_STATUS_MAX);
-    CHECK(strcmp(v.status, "{\"boot\":3,\"seq\":42,\"up_us\":4200123,\"commit\":\"abcdef123456\","
+    CHECK(strcmp(v.status, "{\"boot\":3,\"seq\":42,\"rec\":\"cold\",\"up_us\":4200123,\"commit\":\"abcdef123456\","
                            "\"params\":\"test\",\"uros\":\"run\",\"sessions\":2,\"losses\":1,"
-                           "\"tick_miss\":0,\"sens_miss\":0,\"arena\":9000,\"stk\":1500,\"lift\":{\"hb\":\"alive\",\"st\":\"IDLE\","
+                           "\"tick_miss\":0,\"sens_miss\":0,\"tx\":0,\"c2_rx\":0,\"c3_rx\":0,\"bms_dec\":0,"
+                           "\"arena\":9000,\"stk\":1500,\"lift\":{\"hb\":\"alive\",\"st\":\"IDLE\","
                            "\"pos\":5000,\"age_us\":4000},\"bms\":\"locked\"}") == 0);
+}
+
+static void worst_case_status_fits(void)
+{
+    tlm_status_t s = snapshot();
+    s.boot.id = 4294967295u;
+    s.seq = 4294967295u;
+    s.uptime_us = 99999999999999ull;
+    s.params = "default";
+    s.drive.hb_state = "waiting";
+    s.drive.tick_missed = s.drive.can_tx = 4294967295u;
+    s.aux.c2_rx = s.aux.c3_rx = s.aux.bms_dec = 4294967295u;
+    s.aux.lift_hb = "disabled";
+    s.aux.lift_state = "STOPPING";
+    s.aux.lift_pos = (tlm_opt_u64_t){true, 65534u};
+    s.aux.lift_age_us = (tlm_opt_u64_t){true, 99999999999999ull};
+    s.aux.bms = "disabled";
+    const tlm_uros_meta_t meta = {"abcdef123456-dirty", "wait_agent", 4294967295u, 4294967295u,
+                                  4294967295u, 4294967295u, 4294967295u};
+    tlm_uros_values_t v;
+    tlm_uros_values(&s, &meta, &v);
+    CHECK(v.status_len > 0u && v.status_len < TLM_UROS_STATUS_MAX);
+    printf("  worst-case status message: %zu characters (buffer %u)\n", v.status_len,
+           (unsigned)TLM_UROS_STATUS_MAX);
 }
 
 static void unknown_values_are_nan_never_zero(void)
@@ -227,5 +252,6 @@ int main(void)
     RUN(arena_is_bounded_and_reset);
     RUN(known_values_are_published);
     RUN(unknown_values_are_nan_never_zero);
+    RUN(worst_case_status_fits);
     TEST_END();
 }

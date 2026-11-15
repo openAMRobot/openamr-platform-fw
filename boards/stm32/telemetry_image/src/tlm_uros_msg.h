@@ -12,8 +12,9 @@
  *   drive_heartbeat  std_msgs/String, the heartbeat state of the drive
  *   tof/front        sensor_msgs/Range, TF-Luna on USART2, frame tof_front
  *   tof/rear         sensor_msgs/Range, TF-Luna on USART6, frame tof_rear
- *   status           std_msgs/String, one JSON object: boot id, sequence,
- *                    uptime, build, client state, missed deadlines, lift, BMS
+ *   status           std_msgs/String, one JSON object: boot id, boot record,
+ *                    sequence, uptime, build, client state, missed deadlines,
+ *                    CAN1 requests sent, CAN2/CAN3 frames received, lift, BMS
  */
 #ifndef TLM_UROS_MSG_H
 #define TLM_UROS_MSG_H
@@ -30,7 +31,9 @@
 #define TLM_UROS_TFLUNA_FOV_RAD 0.0349066f
 #define TLM_UROS_TFLUNA_MIN_M 0.2f
 #define TLM_UROS_TFLUNA_MAX_M 8.0f
-#define TLM_UROS_STATUS_MAX 320u
+/* Status JSON buffer. A best-effort message must fit one XRCE transport MTU
+ * (512 bytes, Micro-XRCE-DDS-Client default) with its headers. */
+#define TLM_UROS_STATUS_MAX 440u
 
 typedef struct
 {

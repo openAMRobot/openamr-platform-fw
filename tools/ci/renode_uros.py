@@ -5,8 +5,9 @@ SIMULATION ONLY, not evidence for a board. The image's USART3 is exposed by Reno
 pseudo-terminal; the micro-ROS agent (micro_ros_agent serial) on the host connects to it, and a
 ROS 2 node of this script (rclpy, run with ROS 2 Jazzy sourced) subscribes to the image's topics.
 The drive, lift and BMS are the stubs of tools/ci/renode_drive_stub.py; a TF-Luna stub feeds
-USART2. Renode is throttled to wall time (tlm_throttle_start), because the agent runs in wall
-time; the measured ratio of virtual to wall time is printed.
+USART2. The agent runs in wall time; with the WFI idle hook Renode advances virtual time at host
+speed while the core sleeps, so no throttle is needed (--throttle-ms adds one). The measured ratio
+of virtual to wall time is printed.
 
 Phases, in one Renode process:
   connect        the client reaches RUN: every topic appears with its type
@@ -49,7 +50,7 @@ PERIOD_S = 0.1
 THROTTLE_SLICE_MS = 5
 
 
-def resc(elf, pty):
+def resc(elf, pty, throttle_ms):
     return "\n".join([
         'mach create "openamr"',
         "machine LoadPlatformDescription @platforms/cpus/stm32h743.repl",
@@ -67,18 +68,20 @@ def resc(elf, pty):
         'tlm_stub_attach "can1"',
         'tlm_aux_attach "can2" "can3"',
         'tlm_stub_tfluna "sysbus.usart2" 10 150 500',
-        f"tlm_throttle_start {THROTTLE_SLICE_MS}",
+        # With the WFI idle hook Renode advances virtual time at host speed while the core sleeps,
+        # so it does not run ahead of the agent; the throttle (an upper bound only) is optional.
+        f"tlm_throttle_start {throttle_ms}" if throttle_ms > 0 else "tlm_time_report",
         "start",
     ]) + "\n"
 
 
 class Renode:
-    def __init__(self, renode, elf, out):
+    def __init__(self, renode, elf, out, throttle_ms=0):
         self.pty = str(out / "usart3.pty")
         if os.path.lexists(self.pty):
             os.unlink(self.pty)
         script = out / "uros.resc"
-        script.write_text(resc(Path(elf).resolve(), self.pty))
+        script.write_text(resc(Path(elf).resolve(), self.pty, throttle_ms))
         self.log = open(out / "uros.renode.log", "w", encoding="utf-8")
         self.proc = subprocess.Popen([renode, "--disable-gui", "--console"], stdin=subprocess.PIPE, stdout=self.log,
                                      stderr=subprocess.STDOUT, text=True, start_new_session=True)
@@ -89,14 +92,18 @@ class Renode:
         self.proc.stdin.write(line + "\n")
         self.proc.stdin.flush()
 
+    def _time_lines(self):
+        text = (self.out / "uros.renode.log").read_text(errors="replace")
+        return [json.loads(l[l.index("{"):]) for l in text.splitlines() if "TLM_TIME {" in l]
+
     def time_report(self):
+        before = len(self._time_lines())
         self.monitor("tlm_time_report")
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            self.log.flush()
-            for line in reversed((self.out / "uros.renode.log").read_text(errors="replace").splitlines()):
-                if "TLM_TIME {" in line:
-                    return json.loads(line[line.index("{"):])
+            lines = self._time_lines()
+            if len(lines) > before:
+                return lines[-1]
             time.sleep(0.2)
         return None
 
@@ -242,6 +249,8 @@ def phase_values(c, rec, t0):
         c.that(s.get("params") == "test" and isinstance(s.get("commit"), str) and len(s["commit"]) >= 7,
                f"status build fields {s}")
         c.that(s["lift"]["st"] == "IDLE" and s["lift"]["pos"] == 5000 and s["bms"] == "locked", f"status lift/bms {s}")
+        c.that(s["c3_rx"] > 0 and s["bms_dec"] > 0 and s["tx"] > 0 and s["rec"] == "cold",
+               f"status counters {s}: CAN3 frames, decoded BMS frames and CAN1 requests expected")
 
 
 def phase_stopped(c, rec, t0):
@@ -262,6 +271,8 @@ def main(argv=None):
     p.add_argument("--agent", required=True, help="micro_ros_agent executable")
     p.add_argument("--out", default="build/renode-uros")
     p.add_argument("--summary")
+    p.add_argument("--throttle-ms", type=int, default=0,
+                   help="slice of the wall-time throttle; 0 (default): no throttle")
     a = p.parse_args(argv)
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -280,7 +291,7 @@ def main(argv=None):
         print("Renode micro-ROS phases: 0 passed, 0 failed, 1 blocked, of 4")
         return 2
     results, report = [], {}
-    renode = Renode(a.renode, a.elf, out)
+    renode = Renode(a.renode, a.elf, out, a.throttle_ms)
     agents = []
     t_wall0 = time.monotonic()
     try:

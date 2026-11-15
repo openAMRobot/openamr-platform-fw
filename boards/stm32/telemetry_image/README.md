@@ -152,7 +152,7 @@ node `/base_fw/openamr_base_fw`, DDS domain 0, best effort, one message per topi
 | `/base_fw/wheel_speeds` | `std_msgs/Float32MultiArray` | `[ch1, ch2]` of 606Ch:01 and :02 in drive units (layout label `ch1_ch2_drive_units`); **NaN** unless the channel is `valid` |
 | `/base_fw/drive_heartbeat` | `std_msgs/String` | `disabled`, `waiting`, `alive`, `lost` |
 | `/base_fw/tof/front`, `/base_fw/tof/rear` | `sensor_msgs/Range` | TF-Luna on USART2 and USART6, frames `tof_front` and `tof_rear`, 0.2 to 8 m, 2 degrees; **NaN** unless the sample is valid. Stamp: image uptime (no ROS clock) |
-| `/base_fw/status` | `std_msgs/String` | one JSON object: `boot`, `seq`, `up_us`, `commit`, `params`, client state `uros`, `sessions`, `losses`, `tick_miss`, `sens_miss`, `arena`, `stk`, `lift` (`hb`, `st`, `pos`, `age_us`), `bms` (`locked` while the decoder is locked) |
+| `/base_fw/status` | `std_msgs/String` | one JSON object (at most 440 characters): `boot`, `seq`, `rec` (`cold` or `retained`), `up_us`, `commit`, `params`, client state `uros`, `sessions`, `losses`, `tick_miss`, `sens_miss`, `tx` (CAN1 upload requests sent), `c2_rx`, `c3_rx` (frames received), `bms_dec` (Daly frames decoded, values stay locked), `arena`, `stk`, `lift` (`hb`, `st`, `pos`, `age_us`), `bms` (`locked` while the decoder is locked) |
 
 Unknown values are NaN or `"unknown"`, never 0. Standard message types only; no message is defined.
 
@@ -292,8 +292,11 @@ micro-ROS: `tools/ci/renode_uros.py` (needs ROS 2 Jazzy and `micro_ros_agent`) r
 and an rclpy recorder: phases `connect` (every topic with its type), `nominal` (10 messages per
 second of virtual time per topic, values), `stopped_drive` (wheel speeds NaN, heartbeat `lost`) and
 `agent_restart` (agent stopped 5 s: the client tears down and reconnects, topics resume, zero
-missed CAN tick and sensor poll deadlines). Renode is throttled to wall time; the measured ratio of
-virtual to wall time is printed (0.62 to 0.71 on the development container, 15 Nov 2026).
+missed CAN tick and sensor poll deadlines). The measured ratio of virtual to wall time is printed:
+0.92 on the development container (15 Nov 2026). With the WFI idle hook Renode advances virtual
+time at host speed while the core sleeps, so it does not run ahead of the agent; the optional
+wall-time throttle (`--throttle-ms`) only adds its own sleeps and lowered the ratio to 0.62 to
+0.71 in the same container, so it is off by default.
 
 ## Not verified
 
