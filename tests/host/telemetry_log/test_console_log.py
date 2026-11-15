@@ -25,10 +25,10 @@ DEFAULT = (DATA / "renode_default_build.console.log").read_text()
 
 
 def dump(records):
-    """Records back to console text (without the parser's own "_line" key)."""
+    """Records back to console text (without the parser's own "_line" and "_len" keys)."""
     lines = []
     for r in records:
-        r = {k: v for k, v in r.items() if k != "_line"}
+        r = {k: v for k, v in r.items() if k not in ("_line", "_len")}
         lines.append(json.dumps(r, separators=(",", ":")))
     return "\n".join(lines) + "\n"
 
@@ -44,6 +44,10 @@ def altered(text, change):
 
 def status(records, n):
     return [r for r in records if r["t"] == "st"][n]
+
+
+def slow(records, n, part=None):
+    return tl.slow_lines(records, part)[n]
 
 
 class CapturedLogs(unittest.TestCase):
@@ -73,8 +77,20 @@ class CapturedLogs(unittest.TestCase):
         for s in [r for r in records if r["t"] == "st"]:
             idle = s["sens"]["usart6"]
             self.assertEqual((idle["v"], idle["mm"], idle["age_us"]), ("unknown", "unknown", "unknown"))
-            self.assertEqual(s["sens"]["uart5"]["age_us"], "unknown")
-            self.assertEqual(s["sens"]["uart4"]["v"], "unknown")   # no trigger in this image
+        diag = tl.slow_lines(records, "diag")
+        self.assertGreaterEqual(len(diag), 1)
+        for d in diag:
+            self.assertEqual(d["mb"]["uart5"], ["unknown", 0])
+            self.assertEqual(len(d["mb"]["uart4"]), 2)   # [age_us, frames]: no range, no trigger
+
+    def test_slow_lines_follow_every_fifth_status_line(self):
+        records, _ = tl.parse(NOMINAL)
+        lines = [r for r in records if r["t"] == "st"]
+        seqs = [r["seq"] for r in tl.slow_lines(records)]
+        self.assertEqual(seqs, list(range(0, len(lines), tl.SLOW_EVERY)))
+        self.assertEqual([r["part"] for r in tl.slow_lines(records)], [tl.slow_part(q) for q in seqs])
+        self.assertTrue(all(r["_len"] <= tl.STATUS_LINE_MAX for r in lines))
+        self.assertTrue(all(r["_len"] <= tl.SLOW_LINE_MAX for r in tl.slow_lines(records)))
 
     def test_reset_capture_restarts_the_sequence(self):
         records, problems = tl.check_log(RESET)
@@ -90,12 +106,14 @@ class CapturedLogs(unittest.TestCase):
         records, problems = tl.check_log(DEFAULT)
         self.assertEqual(problems, [])
         for s in [r for r in records if r["t"] == "st"]:
-            self.assertEqual(s["drive"]["hb"], {"st": "disabled", "age_us": "unknown", "nmt": "unknown"})
+            self.assertEqual(s["drive"]["hb"], {"st": "disabled", "age_us": "unknown"})
             for path in tl.DRIVE_OBJECTS:
                 o = tl.drive_object(s, path)
                 self.assertEqual((o["v"], o["raw"], o["age_us"]), ("unset", "unknown", "unknown"))
             self.assertEqual(tl.counter(s, "tx"), 0)
-            self.assertIn("sdo", s["dis"])
+        for c in tl.slow_lines(records, "cfg"):
+            self.assertIn("sdo", c["dis"])
+            self.assertEqual((c["nmt"], c["sdo"]), ("unknown", "disabled"))
 
 
 class CheckerFindsDamage(unittest.TestCase):
@@ -177,10 +195,44 @@ class CheckerFindsDamage(unittest.TestCase):
             status(records, 10)["drive"]["hb"]["age_us"] = "unknown"
         self.assertProblem(altered(NOMINAL, change), "heartbeat alive without an age")
 
-    def test_mb7060_reported_valid(self):
+    def test_mb7060_reported_with_a_range(self):
         def change(records):
-            status(records, 10)["sens"]["uart4"]["v"] = True
+            slow(records, 0, "diag")["mb"]["uart4"] = [37, 1, 450]
         self.assertProblem(altered(NOMINAL, change), "no trigger")
+
+    def test_missing_slow_line(self):
+        def change(records):
+            records.remove(slow(records, 1))
+        self.assertProblem(altered(NOMINAL, change), "no slow line after seq 5")
+
+    def test_slow_line_in_the_wrong_place(self):
+        def change(records):
+            moved = slow(records, 1)
+            records.remove(moved)
+            records.insert(records.index(status(records, 7)) + 1, moved)
+        self.assertProblem(altered(NOMINAL, change), "does not follow a status line of a slow period")
+
+    def test_slow_parts_out_of_turn(self):
+        def change(records):
+            slow(records, 0)["part"] = "diag"
+        self.assertProblem(altered(NOMINAL, change), "expected 'cfg'")
+
+    def test_line_over_its_cap(self):
+        def change(records):
+            status(records, 3)["sens"]["usart6"]["st"] = "x" * 200
+        self.assertProblem(altered(NOMINAL, change), "cap 691")
+
+    def test_counters_left_out_are_unknown(self):
+        records, _ = tl.parse(NOMINAL)
+        s = copy.deepcopy(status(records, 3))
+        self.assertEqual(tl.counter(s, "sdo_to"), 0)
+        s["cnt_more"] = 2
+        self.assertIsNone(tl.counter(s, "sdo_to"))       # absent and not known to be zero
+        self.assertEqual(tl.counter(s, "rx"), s["cnt"]["rx"])
+
+        def change(recs):
+            status(recs, 3)["cnt_more"] = 0
+        self.assertProblem(altered(NOMINAL, change), "cnt_more is 0")
 
     def test_distance_without_validity(self):
         def change(records):

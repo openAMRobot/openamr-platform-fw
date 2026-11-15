@@ -23,6 +23,7 @@
 #   tlm_stub_object index sub size value
 #   tlm_stub_tfluna "sysbus.usart2" period_ms distance_cm strength   (0 ms = stop)
 #   tlm_stub_mb7060 "sysbus.uart4" period_ms range_cm                (0 ms = stop)
+#   tlm_stub_uart_burst "sysbus.usart2" frames distance_cm strength  TF-Luna frames back to back, now
 #   tlm_stub_report                  print one "TLM_STUB {json}" line
 from Antmicro.Renode.Core import EmulationManager
 from Antmicro.Renode.Core.CAN import CANMessageFrame
@@ -46,6 +47,8 @@ CONFIG = {
     "late_index": 0,        # with late_sub: this object answers after late_us
     "late_sub": 0,
     "late_us": 50000,
+    "burst_n": 0,           # with burst_ms: every burst_ms, burst_n heartbeat frames at the same instant
+    "burst_ms": 0,
 }
 
 
@@ -60,6 +63,8 @@ class DriveStub(ICAN):
         self.violations = []
         self.other_frames = 0
         self.hb_generation = 0
+        self.burst_generation = 0
+        self.frames_sent = 0     # every frame the stub put on the hub
         self.feeders = {}
 
     # ---- ICAN ----
@@ -106,6 +111,7 @@ class DriveStub(ICAN):
                                     Action[TimeInterval](lambda _ts: fn()))
 
     def transmit(self, can_id, data):
+        self.frames_sent += 1
         frame = CANMessageFrame(can_id, Array[Byte](data), False, False)
         for handler in list(self.handlers):
             handler(frame)
@@ -134,6 +140,22 @@ class DriveStub(ICAN):
             self.transmit(0x700 + CONFIG["node"], [0x05])   # operational
             self.after(CONFIG["heartbeat_ms"] * 1000, beat)
         self.after(CONFIG["heartbeat_ms"] * 1000, beat)
+
+    def start_bursts(self):
+        # Sustained traffic of accepted frames: burst_n heartbeats (700h + node, operational)
+        # at one instant, every burst_ms. They pass the image's filter like real heartbeats.
+        self.burst_generation += 1
+        generation = self.burst_generation
+        if CONFIG["burst_n"] <= 0 or CONFIG["burst_ms"] <= 0:
+            return
+
+        def burst():
+            if generation != self.burst_generation or CONFIG["silent"]:
+                return
+            for _ in range(CONFIG["burst_n"]):
+                self.transmit(0x700 + CONFIG["node"], [0x05])
+            self.after(CONFIG["burst_ms"] * 1000, burst)
+        self.after(CONFIG["burst_ms"] * 1000, burst)
 
     def feed(self, uart_name, period_ms, frame_bytes):
         gen = self.feeders.get(uart_name, 0) + 1
@@ -210,6 +232,8 @@ def mc_tlm_stub_set(key, value):
     CONFIG[key] = int(value)
     if key in ("heartbeat_ms", "silent"):
         STUB[0].start_heartbeat()
+    if key in ("burst_n", "burst_ms"):
+        STUB[0].start_bursts()
 
 
 def mc_tlm_stub_object(index, sub, size, value):
@@ -222,13 +246,28 @@ def mc_tlm_stub_tfluna(uart_name, period_ms, distance_cm, strength):
     STUB[0].feed(uart_name, int(period_ms), body + [sum(body) & 0xFF])
 
 
+def tfluna_frame(distance_cm, strength):
+    d, a, t = int(distance_cm), int(strength), 0x0900   # 0x0900 / 8 - 256 = 32 degC
+    body = [0x59, 0x59, d & 0xFF, d >> 8, a & 0xFF, a >> 8, t & 0xFF, t >> 8]
+    return body + [sum(body) & 0xFF]
+
+
+def mc_tlm_stub_uart_burst(uart_name, frames, distance_cm, strength):
+    # Many TF-Luna frames at one instant: more bytes than the image's receive ring holds.
+    uart = _machine()[uart_name]
+    data = tfluna_frame(distance_cm, strength) * int(frames)
+    for b in data:
+        uart.WriteChar(b)
+    print "TLM_STUB_BURST %s %d bytes" % (uart_name, len(data))
+
+
 def mc_tlm_stub_mb7060(uart_name, period_ms, range_cm):
     STUB[0].feed(uart_name, int(period_ms), [ord(c) for c in "R%03d\r" % int(range_cm)])
 
 
 def mc_tlm_stub_report():
     s = STUB[0]
-    print 'TLM_STUB {"requests":%d,"responses":%d,"heartbeats":%d,"violations":%d}' % (
-        s.requests, s.responses, s.heartbeats, len(s.violations))
+    print 'TLM_STUB {"requests":%d,"responses":%d,"heartbeats":%d,"frames_sent":%d,"violations":%d}' % (
+        s.requests, s.responses, s.heartbeats, s.frames_sent, len(s.violations))
     for v in s.violations[:20]:
         print "TLM_STUB_VIOLATION " + v

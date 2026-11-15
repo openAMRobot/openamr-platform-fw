@@ -16,6 +16,14 @@ of tlm_params.h; "default_build" needs the Debug or Release ELF):
   duplicate_late     every answer duplicated, then the 6041h answer arrives after its timeout
   reset_mid_run      machine reset in the middle: new boot id, sequence from zero
   default_build      image without test values: every open feature disabled, nothing sent
+  sustained_traffic  bursts of 12 accepted frames every 5 ms for 2 s: the interrupt takes at most
+                     4 frames per entry, the tick keeps its period, deadline misses are zero or
+                     reported, nothing is lost silently
+  uart_overflow_tfluna  300 bytes at once on the TF-Luna port usart2: the ring overflow is counted,
+                     the buffered bytes are discarded and the next sample is valid
+  reset_keep_ram     two machine resets (RAM kept): boot id 1, 2, 3, sequence from zero each time
+  fresh_start        a fresh Renode start after a run that reached boot id 3: boot id 1, cold
+                     record, sequence from zero
 
 Usage: renode_telemetry.py --renode RENODE --elf-test RenodeTest.elf [--elf-default Debug.elf]
                            [--scenario NAME ...] [--out DIR] [--summary FILE]
@@ -42,8 +50,8 @@ HB_TIMEOUT_US = 300000
 DRIVE_MAX_AGE_US = 300000
 TFLUNA_STALE_US = 200000
 PERIOD_US = 100000
-# 115200 baud 8N1 carries 1152 characters per 100 ms period; the image caps a line at 1100.
-LINE_BUDGET = 1000
+SLOW_EVERY = telemetry_log.SLOW_EVERY
+TICK_MS = 20
 
 NOT_MODELLED_BY_DESIGN = [
     "clock tree: Renode's RCC model does not keep the PLL and divider registers; the harness sets the "
@@ -112,6 +120,18 @@ def obj(s, *path):
     return telemetry_log.drive_object(s, path)
 
 
+def slow_lines(records, part=None):
+    return telemetry_log.slow_lines(records, part)
+
+
+def cfg_lines(records):
+    return slow_lines(records, "cfg")
+
+
+def diag_lines(records):
+    return slow_lines(records, "diag")
+
+
 def check_banner(c, records, params):
     banners = [r for r in records if r["t"] == "boot"]
     if not c.that(len(banners) >= 1, "no boot banner"):
@@ -129,8 +149,14 @@ def check_banner(c, records, params):
     c.that(b.get("can1_bitrate") == 500000, "banner CAN1 bit rate")
 
 
+def check_res_valid(c, sl, where):
+    o = sl["res"]
+    c.that(o["v"] == "valid" and o["raw"] == 1 and isinstance(o["age_us"], int) and o["age_us"] <= DRIVE_MAX_AGE_US,
+           f"{where}: res {o}")
+
+
 def check_drive_valid(c, s, where):
-    for path, raw in ((("wheel", "ch1"), 1234), (("wheel", "ch2"), -1234), (("res",), 1)):
+    for path, raw in ((("wheel", "ch1"), 1234), (("wheel", "ch2"), -1234)):
         o = obj(s, *path)
         c.that(o["v"] == "valid" and o["raw"] == raw, f"{where}: {'.'.join(path)} is {o['v']} raw {o['raw']!r}, expected valid {raw}")
         c.that(isinstance(o["age_us"], int) and o["age_us"] <= DRIVE_MAX_AGE_US, f"{where}: {'.'.join(path)} age {o['age_us']!r}")
@@ -153,9 +179,8 @@ def scenario_nominal():
         for s in lines[5:]:
             where = f"seq {s['seq']}"
             hb = s["drive"]["hb"]
-            c.that(hb["st"] == "alive" and hb["nmt"] == "operational", f"{where}: heartbeat {hb}")
+            c.that(hb["st"] == "alive", f"{where}: heartbeat {hb}")
             c.that(isinstance(hb["age_us"], int) and hb["age_us"] < HB_TIMEOUT_US, f"{where}: heartbeat age {hb['age_us']!r}")
-            c.that(s["drive"]["sdo"] == "on" and s["drive"]["bus_off"] is False, f"{where}: sdo/bus state")
             check_drive_valid(c, s, where)
             tf = s["sens"]["usart2"]
             c.that(tf["st"] == "ok" and tf["v"] is True and tf["mm"] == 1500, f"{where}: TF-Luna usart2 {tf}")
@@ -163,17 +188,30 @@ def scenario_nominal():
             idle = s["sens"]["usart6"]
             c.that(idle["st"] == "never" and idle["v"] == UNKNOWN and idle["mm"] == UNKNOWN and idle["age_us"] == UNKNOWN,
                    f"{where}: TF-Luna usart6 without data {idle}")
-            mb = s["sens"]["uart4"]
-            c.that(mb["v"] == UNKNOWN and mb["n"] >= 1 and isinstance(mb["age_us"], int), f"{where}: MB7060 uart4 {mb}")
-            c.that(s["sens"]["uart5"] == {"v": UNKNOWN, "age_us": UNKNOWN, "n": 0}, f"{where}: MB7060 uart5 {s['sens']['uart5']}")
-            c.that(s["dis"] == ["mb7060_range"], f"{where}: disabled list {s['dis']}")
+            c.that(sorted(s["sens"]) == ["usart2", "usart6"], f"{where}: sensors of the status line {sorted(s['sens'])}")
+        slow = slow_lines(records)
+        c.that([x["seq"] for x in slow] == list(range(0, len(lines), SLOW_EVERY)), f"slow lines at seq {[x['seq'] for x in slow]}")
+        for sl in cfg_lines(records)[1:]:
+            where = f"slow cfg seq {sl['seq']}"
+            c.that(sl["params"] == "test" and sl["sdo"] == "on" and sl["nmt"] == "operational", f"{where}: {sl['params']} {sl['sdo']} {sl['nmt']}")
+            c.that(sl["bus_off"] is False, f"{where}: bus state {sl['bus_off']}")
+            check_res_valid(c, sl, where)
+            c.that(sl["dis"] == ["mb7060_range"], f"{where}: disabled {sl['dis']}")
+            c.that(sl["health"] == "available", f"{where}: SDO health {sl['health']}")
+        for sl in diag_lines(records):
+            where = f"slow diag seq {sl['seq']}"
+            mb = sl["mb"]["uart4"]
+            c.that(isinstance(mb[0], int) and mb[1] >= 1, f"{where}: MB7060 uart4 {mb}")
+            c.that(sl["mb"]["uart5"] == [UNKNOWN, 0], f"{where}: MB7060 uart5 {sl['mb']['uart5']}")
+            c.that(sl["rx"] == {}, f"{where}: rx {sl['rx']}")
+            c.that(sorted(sl["stk"]) == ["can1_rx", "can1_tick", "idle", "reporter", "sensors"]
+                   and all(w > 0 for w in sl["stk"].values()), f"{where}: stack marks {sl['stk']}")
         last = lines[-1]
         c.that(sorted(last["cnt"]) == ["hb", "hb_boot", "rx", "sdo_ok", "tx"], f"non-zero counters in a nominal run: {last['cnt']}")
         c.that(cnt(last, "hb_boot") == 2 and cnt(last, "hb") >= 15, f"heartbeat counters {last['cnt']}")
         # The stub keeps counting for the rest of the last period, after the last line was printed.
         c.that(cnt(last, "sdo_ok") >= 80 and 0 <= stub["requests"] - cnt(last, "tx") <= 6,
                f"sdo_ok {cnt(last, 'sdo_ok')}, tx {cnt(last, 'tx')}, stub saw {stub['requests']}")
-        c.that(max(len(json.dumps(s, separators=(",", ":"))) for s in lines) < LINE_BUDGET, f"status line longer than {LINE_BUDGET} characters")
     return "test", steps, check
 
 
@@ -188,13 +226,17 @@ def scenario_drive_silent():
         for s in lines:
             where = f"seq {s['seq']}"
             hb = s["drive"]["hb"]
-            c.that(hb["age_us"] == UNKNOWN and hb["nmt"] == UNKNOWN, f"{where}: heartbeat never seen but {hb}")
+            c.that(hb["age_us"] == UNKNOWN, f"{where}: heartbeat never seen but {hb}")
             c.that(hb["st"] == ("waiting" if s["up_us"] < HB_TIMEOUT_US else "lost") or abs(s["up_us"] - HB_TIMEOUT_US) < 30000,
                    f"{where}: heartbeat {hb['st']} at {s['up_us']} us")
             for path in telemetry_log.DRIVE_OBJECTS:
                 o = obj(s, *path)
                 c.that(o["v"] in ("not_read", "timeout") and o["raw"] == UNKNOWN and o["age_us"] == UNKNOWN and o["n"] == 0,
                        f"{where}: {'.'.join(path)} {o} with a silent drive")
+        for sl in cfg_lines(records):
+            c.that(sl["nmt"] == UNKNOWN and sl["res"]["raw"] == UNKNOWN and sl["res"]["age_us"] == UNKNOWN,
+                   f"slow seq {sl['seq']}: heartbeat or resolution never seen but {sl['nmt']} {sl['res']}")
+        c.that(cfg_lines(records)[-1]["health"] == "unavailable", f"SDO health with a silent drive {cfg_lines(records)[-1]['health']}")
         last = lines[-1]
         c.that(last["drive"]["hb"]["st"] == "lost", f"last heartbeat state {last['drive']['hb']['st']}")
         c.that(all(obj(last, *p)["v"] == "timeout" for p in telemetry_log.DRIVE_OBJECTS), "not every object timed out by the end")
@@ -218,7 +260,8 @@ def scenario_heartbeat_stops():
         ages = [s["drive"]["hb"]["age_us"] for s in after]
         c.that(all(isinstance(a, int) and a > HB_TIMEOUT_US for a in ages), f"lost heartbeat ages {ages}")
         c.that(all(b - a == PERIOD_US for a, b in zip(ages, ages[1:])), f"lost heartbeat age does not grow by one period: {ages}")
-        c.that(all(s["drive"]["hb"]["nmt"] == "operational" for s in after), "last NMT state not kept as the last one seen")
+        slow_after = [x for x in cfg_lines(records) if (x["seq"] + 1) * PERIOD_US >= 1000000]
+        c.that(slow_after and all(x["nmt"] == "operational" for x in slow_after), "last NMT state not kept as the last one seen")
         # The SDO answers go on: the wheel values stay valid on their own evidence.
         for s in after:
             check_drive_valid(c, s, f"seq {s['seq']} (heartbeat lost)")
@@ -240,7 +283,9 @@ def scenario_wheel_abort():
                    and ch2.get("abort") == "0x06020000", f"{where}: aborted channel {ch2}")
             ch1 = obj(s, "wheel", "ch1")
             c.that(ch1["v"] == "valid" and ch1["raw"] == 1234 and isinstance(ch1["age_us"], int), f"{where}: other channel {ch1}")
-            c.that(obj(s, "sw")["v"] == "valid" and obj(s, "res")["v"] == "valid", f"{where}: other objects affected by the abort")
+            c.that(obj(s, "sw")["v"] == "valid" and obj(s, "fault")["v"] == "valid", f"{where}: other objects affected by the abort")
+        for sl in cfg_lines(records)[1:]:
+            check_res_valid(c, sl, f"slow seq {sl['seq']}")
         last = lines[-1]
         c.that(cnt(last, "sdo_ab") >= 10 and cnt(last, "sdo_to") == 0, f"counters {last['cnt']}")
     return "test", steps, check
@@ -310,7 +355,8 @@ def scenario_reset_mid_run():
 
 def scenario_default_build():
     steps = ['tlm_stub_tfluna "sysbus.usart2" 10 150 500', run_for("1.0")]
-    expected_disabled = ["hb", "sdo", "drive_age", "speed_res", "tfluna", "tfluna_stale", "mb7060_stale", "mb7060_range"]
+    expected_disabled = ["hb", "sdo", "sdo_health_n", "sdo_health_t", "drive_age", "speed_res", "tfluna", "tfluna_stale",
+                         "mb7060_stale", "mb7060_range"]
 
     def check(c, records, stub):
         check_banner(c, records, "default")
@@ -324,21 +370,126 @@ def scenario_default_build():
             return
         for s in lines:
             where = f"seq {s['seq']}"
-            c.that(s["params"] == "default" and s["dis"] == expected_disabled, f"{where}: params {s['params']} disabled {s['dis']}")
             hb = s["drive"]["hb"]
-            c.that(hb == {"st": "disabled", "age_us": UNKNOWN, "nmt": UNKNOWN}, f"{where}: heartbeat {hb}")
-            c.that(s["drive"]["sdo"] == "disabled", f"{where}: sdo {s['drive']['sdo']}")
+            c.that(hb == {"st": "disabled", "age_us": UNKNOWN}, f"{where}: heartbeat {hb}")
             for path in telemetry_log.DRIVE_OBJECTS:
                 o = obj(s, *path)
                 c.that(o["v"] == "unset" and o["raw"] == UNKNOWN and o["age_us"] == UNKNOWN, f"{where}: {'.'.join(path)} {o}")
             tf = s["sens"]["usart2"]
             c.that(tf == {"st": "disabled", "v": UNKNOWN, "mm": UNKNOWN, "age_us": UNKNOWN, "n": 0}, f"{where}: TF-Luna {tf}")
+        slow = cfg_lines(records)
+        c.that(len(slow) >= 1 and len(diag_lines(records)) >= 1, "no slow line of each part")
+        for sl in slow:
+            where = f"slow seq {sl['seq']}"
+            c.that(sl["params"] == "default" and sl["dis"] == expected_disabled, f"{where}: params {sl['params']} disabled {sl['dis']}")
+            c.that(sl["sdo"] == "disabled" and sl["health"] == "disabled" and sl["nmt"] == UNKNOWN, f"{where}: {sl['sdo']} {sl['health']} {sl['nmt']}")
+            c.that(sl["res"]["v"] == "unset" and sl["res"]["raw"] == UNKNOWN, f"{where}: res {sl['res']}")
         last = lines[-1]
         # No timeout value, no request: the default image sends nothing at all on CAN1.
         c.that(cnt(last, "tx") == 0 and stub["requests"] == 0, f"default image sent {cnt(last, 'tx')} frame(s), stub saw {stub['requests']}")
         c.that(cnt(last, "rx") >= 8 and cnt(last, "hb") == 0, f"heartbeats received {cnt(last, 'rx')}, consumed {cnt(last, 'hb')}")
-        c.that(max(len(json.dumps(s, separators=(",", ":"))) for s in lines) < LINE_BUDGET, f"status line longer than {LINE_BUDGET} characters")
     return "default", steps, check
+
+
+def scenario_sustained_traffic():
+    # 12 heartbeat frames (accepted by the filter) at one instant every 5 ms: 2400 frames/s on top
+    # of the normal traffic, each burst more than the 4 frames one interrupt entry may take.
+    steps = [run_for("0.5"), stub_set("burst_n", 12), stub_set("burst_ms", 5), run_for("2.0"),
+             stub_set("burst_n", 0), run_for("0.3")]
+
+    def check(c, records, stub):
+        lines = status_lines(records)
+        if not c.that(len(lines) >= 26, f"{len(lines)} status lines"):
+            return
+        last = lines[-1]
+        c.that(cnt(last, "rx") >= 4000, f"frames received {cnt(last, 'rx')}")
+        # Every frame the stub sent before the last line was either received or counted lost.
+        lost = cnt(last, "rx_hw_lost") + cnt(last, "rx_q_ovf")
+        c.that(0 <= stub["frames_sent"] - (cnt(last, "rx") + lost) <= 40,
+               f"stub sent {stub['frames_sent']}, image received {cnt(last, 'rx')} and counted {lost} lost")
+        c.that(cnt(last, "rx_defer") >= 100, f"interrupt entries that left frames for the next one: {cnt(last, 'rx_defer')}")
+        # The tick keeps its period: 50 runs per second; a missed deadline is counted, never made up.
+        slow = diag_lines(records)   # one per second
+        for a, b in zip(slow, slow[1:]):
+            runs = b["tick"][0] - a["tick"][0]
+            missed = cnt(next(s for s in lines if s["seq"] == b["seq"]), "tick_miss") - \
+                cnt(next(s for s in lines if s["seq"] == a["seq"]), "tick_miss")
+            c.that(runs <= 1000 // TICK_MS + 1, f"slow seq {b['seq']}: {runs} tick runs in one second (catch-up burst)")
+            c.that(runs + missed >= 1000 // TICK_MS - 1, f"slow seq {b['seq']}: {runs} runs and {missed} reported misses in one second")
+        c.that(cnt(last, "tick_miss") == 0, f"tick deadline misses under sustained traffic: {cnt(last, 'tick_miss')}")
+        # The drive values stay valid on their own samples through the traffic.
+        for s in lines[5:]:
+            check_drive_valid(c, s, f"seq {s['seq']} (sustained traffic)")
+        c.that(cnt(last, "overrun") == 0 and cnt(last, "dropped") == 0, f"reporter counters {last['cnt']}")
+    return "test", steps, check
+
+
+def scenario_uart_overflow_tfluna():
+    # TF-Luna on usart2 every 10 ms at 150 cm; at 1.0 s, 300 bytes (33 frames at 222 cm) arrive at one
+    # instant, more than the 64-byte ring.
+    steps = ['tlm_stub_tfluna "sysbus.usart2" 10 150 500', run_for("1.0"),
+             'tlm_stub_uart_burst "sysbus.usart2" 33 222 500', run_for("1.0")]
+
+    def check(c, records, stub):
+        lines = status_lines(records)
+        if not c.that(len(lines) >= 18, f"{len(lines)} status lines"):
+            return
+        before = [s for s in lines if s["up_us"] < 1000000]
+        after = [s for s in lines if s["up_us"] > 1000000]
+        c.that(before and all(cnt(s, "ring_ovf") == 0 for s in before), "overflow counted before the burst")
+        c.that(after and cnt(after[0], "ring_ovf") >= 1, f"first line after the burst: {after[0]['cnt'] if after else None}")
+        c.that(cnt(lines[-1], "ring_ovf") == cnt(after[0], "ring_ovf"), "further overflows after the burst")
+        # At most the ring's worth of the burst is parsed; the rest is counted lost, not parsed.
+        c.that(cnt(lines[-1], "ring_lost") >= 300 - 64, f"bytes lost {cnt(lines[-1], 'ring_lost')} of a 300-byte burst")
+        c.that(cnt(lines[-1], "tf_bad") == 0, f"checksum errors after the resynchronisation: {cnt(lines[-1], 'tf_bad')}")
+        for s in after:
+            tf = s["sens"]["usart2"]
+            c.that(tf["st"] == "ok" and tf["v"] is True and tf["mm"] in (1500, 2220) and isinstance(tf["age_us"], int)
+                   and tf["age_us"] < TFLUNA_STALE_US, f"seq {s['seq']} after the overflow: {tf}")
+        c.that(after[-1]["sens"]["usart2"]["mm"] == 1500, "last sample is not the periodic one")
+        ns = [s["sens"]["usart2"]["n"] for s in after]
+        c.that(all(b > a for a, b in zip(ns, ns[1:])), f"frame count does not rise after the overflow: {ns}")
+        c.that(diag_lines(records)[-1]["rx"] == {}, f"port state after the overflow: {diag_lines(records)[-1]['rx']}")
+    return "test", steps, check
+
+
+def check_runs_from_zero(c, runs, where):
+    for banner, lines in runs:
+        c.that(lines and lines[0]["seq"] == 0 and lines[0]["boot"] == banner["boot"],
+               f"{where}: boot {banner['boot']} starts at seq {lines[0]['seq'] if lines else None}")
+        c.that(lines and lines[0]["up_us"] < 2 * PERIOD_US, f"{where}: boot {banner['boot']} uptime {lines[0]['up_us'] if lines else None}")
+
+
+def scenario_reset_keep_ram():
+    steps = [run_for("0.6"), "machine Reset", run_for("0.6"), "machine Reset", stub_set("heartbeat_ms", 100), run_for("0.6")]
+
+    def check(c, records, stub):
+        runs = telemetry_log.boots(records)
+        if not c.that(len(runs) == 3, f"{len(runs)} boot banners, expected 3"):
+            return
+        ids = [b["boot"] for b, _ in runs]
+        c.that(ids == [1, 2, 3], f"boot ids {ids}, expected 1, 2, 3 while RAM is kept")
+        c.that([b["boot_record"] for b, _ in runs] == ["cold", "retained", "retained"], "boot record states")
+        check_runs_from_zero(c, runs, "reset keeping RAM")
+    return "test", steps, check
+
+
+def scenario_fresh_start():
+    # First Renode process: two resets, so the record reaches boot id 3. Second, fresh process
+    # (new emulation, RAM not kept): boot id 1 again, cold record.
+    before = [run_for("0.4"), "machine Reset", run_for("0.4"), "machine Reset", run_for("0.4")]
+    steps = [run_for("0.6")]
+
+    def check(c, records, stub, before_records):
+        prior = telemetry_log.boots(before_records)
+        c.that([b["boot"] for b, _ in prior] == [1, 2, 3], f"first process boot ids {[b['boot'] for b, _ in prior]}")
+        runs = telemetry_log.boots(records)
+        if not c.that(len(runs) == 1, f"{len(runs)} boot banners in the fresh process"):
+            return
+        banner, _ = runs[0]
+        c.that(banner["boot"] == 1 and banner["boot_record"] == "cold", f"fresh start: boot {banner['boot']} {banner['boot_record']}")
+        check_runs_from_zero(c, runs, "fresh start")
+    return "test", steps, check, before
 
 
 SCENARIOS = collections.OrderedDict([
@@ -349,30 +500,30 @@ SCENARIOS = collections.OrderedDict([
     ("duplicate_late", scenario_duplicate_late),
     ("reset_mid_run", scenario_reset_mid_run),
     ("default_build", scenario_default_build),
+    ("sustained_traffic", scenario_sustained_traffic),
+    ("uart_overflow_tfluna", scenario_uart_overflow_tfluna),
+    ("reset_keep_ram", scenario_reset_keep_ram),
+    ("fresh_start", scenario_fresh_start),
 ])
 
 
-def run_scenario(name, renode, elfs, out_dir, timeout):
-    """Returns (status, messages, unhandled counter). status: PASS, FAIL or BLOCKED."""
-    which, steps, check = SCENARIOS[name]()
-    elf = elfs.get(which)
-    if elf is None:
-        return "BLOCKED", [f"no ELF given for the {which!r} build"], collections.Counter()
-    console = out_dir / f"{name}.console.log"
-    script = out_dir / f"{name}.resc"
+def run_renode(renode, elf, out_dir, tag, steps, timeout):
+    """One fresh Renode process. Returns (error or None, console text, stub report, violations, unhandled)."""
+    console = out_dir / f"{tag}.console.log"
+    script = out_dir / f"{tag}.resc"
     console.unlink(missing_ok=True)
     script.write_text(resc(Path(elf).resolve(), console, steps))
     try:
         r = subprocess.run([renode, "--disable-gui", "--console", "-e", f"include @{script}"], stdin=subprocess.DEVNULL,
                            capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return "BLOCKED", [f"Renode did not run: {exc}"], collections.Counter()
+        return f"Renode did not run: {exc}", "", None, [], collections.Counter()
     output = renode_boot.ANSI.sub("", r.stdout + r.stderr)
-    (out_dir / f"{name}.renode.log").write_text(output)
+    (out_dir / f"{tag}.renode.log").write_text(output)
     _, unhandled, errors = renode_boot.parse(output)
     errors += [l for l in output.splitlines() if "Fatal error" in l or "failed" in l and "Command" in l]
     if errors:
-        return "BLOCKED", ["Renode reported: " + errors[0].strip()], unhandled
+        return "Renode reported: " + errors[0].strip(), "", None, [], unhandled
     stub = None
     violations = []
     for line in output.splitlines():
@@ -381,19 +532,49 @@ def run_scenario(name, renode, elfs, out_dir, timeout):
         elif line.startswith("TLM_STUB_VIOLATION"):
             violations.append(line)
     if stub is None or not console.exists():
-        return "BLOCKED", ["no stub report or no console file from Renode"], unhandled
+        return "no stub report or no console file from Renode", "", None, [], unhandled
+    return None, console.read_text(errors="replace"), stub, violations, unhandled
+
+
+def run_scenario(name, renode, elfs, out_dir, timeout):
+    """Returns (status, messages, unhandled counter). status: PASS, FAIL or BLOCKED."""
+    spec = SCENARIOS[name]()
+    which, steps, check = spec[:3]
+    before = spec[3] if len(spec) > 3 else None
+    elf = elfs.get(which)
+    if elf is None:
+        return "BLOCKED", [f"no ELF given for the {which!r} build"], collections.Counter()
     c = Check()
-    records, problems = telemetry_log.check_log(console.read_text(errors="replace"), PERIOD_US)
+    total = collections.Counter()
+    before_records = None
+    if before is not None:
+        error, text, stub, violations, unhandled = run_renode(renode, elf, out_dir, name + ".before", before, timeout)
+        total.update(unhandled)
+        if error:
+            return "BLOCKED", [error], total
+        before_records, problems = telemetry_log.check_log(text, PERIOD_US)
+        for p in problems:
+            c.that(False, "log check (first process): " + p)
+        c.that(stub["violations"] == 0, f"first process: {stub['violations']} frame(s) that are not an SDO upload request")
+    error, text, stub, violations, unhandled = run_renode(renode, elf, out_dir, name, steps, timeout)
+    total.update(unhandled)
+    if error:
+        return "BLOCKED", [error], total
+    records, problems = telemetry_log.check_log(text, PERIOD_US)
     for p in problems:
         c.that(False, "log check: " + p)
     c.that(not any(r["t"] == "fatal" for r in records), "the image printed a fatal record")
+    c.that(not any(r["t"] == "err" for r in records), "the image printed an error record (line over its cap)")
     # Read-only boundary seen from the bus: only SDO initiate-upload requests to node 1.
     c.that(stub["violations"] == 0, f"{stub['violations']} frame(s) that are not an SDO upload request: {violations[:3]}")
     try:
-        check(c, records, stub)
-    except (KeyError, IndexError, TypeError) as exc:
+        if before is not None:
+            check(c, records, stub, before_records)
+        else:
+            check(c, records, stub)
+    except (KeyError, IndexError, TypeError, StopIteration) as exc:
         c.that(False, f"status line misses a field: {exc!r}")
-    return ("FAIL" if c.failures else "PASS"), c.failures, unhandled
+    return ("FAIL" if c.failures else "PASS"), c.failures, total
 
 
 def main(argv=None):
