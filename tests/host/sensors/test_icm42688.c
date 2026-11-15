@@ -4,6 +4,22 @@
 #include "oamr/icm42688.h"
 #include "test_harness.h"
 
+/*
+ * Golden values in this file and their sources.
+ *
+ * [DS]   TDK ICM-42688-P datasheet DS-000347, as summarised in icm42688.h:
+ *        register addresses, WHO_AM_I 0x47, FS_SEL bits 7:5 and ODR bits 3:0
+ *        of GYRO_CONFIG0 / ACCEL_CONFIG0, gyro 16.4 LSB/(deg/s) at 2000 dps
+ *        doubling per FS_SEL step, accel 2048 LSB/g at 16 g doubling per
+ *        step, temperature TEMP_DATA / 132.48 + 25 degC, INT_CONFIG1 reset
+ *        value with INT_ASYNC_RESET set, invalid code -32768. Revision and
+ *        section numbers are not recorded in icm42688.h. Source not
+ *        verified: no copy of the datasheet was available to this change.
+ * [CALC] hand arithmetic from a [DS] factor with test inputs chosen here
+ *        (deg to rad 0.017453292519943295, standard gravity 9.80665 m/s^2).
+ * [CFG]  a test configuration value, not the robot's (TODO(Evans)).
+ */
+
 /* Fake ICM-42688-P: a 128-byte register file behind the SPI hook. */
 typedef struct {
     uint8_t regs[128];
@@ -53,7 +69,7 @@ static oamr_icm_config_t cfg_ok(void)
     oamr_icm_config_t c;
     c.gyro_fs = OAMR_ICM_GYRO_FS_2000DPS;
     c.accel_fs = OAMR_ICM_ACCEL_FS_16G;
-    c.odr_code = 0x07u; /* test value */
+    c.odr_code = 0x07u; /* [CFG] test value; [DS] 0x07 = 200 Hz, source not verified */
     return c;
 }
 
@@ -61,7 +77,7 @@ static void fake_init(fake_t *f, oamr_icm_spi_t *spi)
 {
     memset(f, 0, sizeof(*f));
     f->regs[OAMR_ICM_REG_WHO_AM_I] = OAMR_ICM_WHO_AM_I_VALUE;
-    f->regs[OAMR_ICM_REG_INT_CONFIG1] = 0x10u; /* reset value has INT_ASYNC_RESET set */
+    f->regs[OAMR_ICM_REG_INT_CONFIG1] = 0x10u; /* [DS] reset value has INT_ASYNC_RESET set */
     spi->transfer = fake_transfer;
     spi->delay_us = fake_delay;
     spi->ctx = f;
@@ -75,6 +91,7 @@ static void put_be16(uint8_t *p, int16_t v)
 
 static void scaling(void)
 {
+    /* [DS] sensitivities; [CALC] 16.4 * 8 = 131.2, 16.4 * 128 = 2099.2 */
     CHECK_NEAR(oamr_icm_gyro_lsb_per_dps(OAMR_ICM_GYRO_FS_2000DPS), 16.4, 1e-6);
     CHECK_NEAR(oamr_icm_gyro_lsb_per_dps(OAMR_ICM_GYRO_FS_250DPS), 131.2, 1e-4);
     CHECK_NEAR(oamr_icm_gyro_lsb_per_dps(OAMR_ICM_GYRO_FS_15_625DPS), 2099.2, 1e-3);
@@ -83,18 +100,18 @@ static void scaling(void)
     CHECK_NEAR(oamr_icm_accel_lsb_per_g(OAMR_ICM_ACCEL_FS_16G), 2048.0, 1e-6);
     CHECK_NEAR(oamr_icm_accel_lsb_per_g(OAMR_ICM_ACCEL_FS_2G), 16384.0, 1e-6);
     CHECK(oamr_icm_accel_lsb_per_g(OAMR_ICM_ACCEL_FS_UNSET) == 0.0f);
-    /* register encodings: FS_SEL in 7:5, ODR in 3:0 */
+    /* [DS] register encodings: FS_SEL in 7:5, ODR in 3:0; [CALC] values */
     CHECK(oamr_icm_gyro_config0(OAMR_ICM_GYRO_FS_2000DPS, 0x06u) == 0x06u);
     CHECK(oamr_icm_gyro_config0(OAMR_ICM_GYRO_FS_250DPS, 0x07u) == 0x67u);
     CHECK(oamr_icm_gyro_config0(OAMR_ICM_GYRO_FS_15_625DPS, 0x0Fu) == 0xEFu);
     CHECK(oamr_icm_accel_config0(OAMR_ICM_ACCEL_FS_2G, 0x07u) == 0x67u);
     CHECK(oamr_icm_gyro_config0(OAMR_ICM_GYRO_FS_2000DPS, 0u) == 0u);
     CHECK(oamr_icm_gyro_config0(OAMR_ICM_GYRO_FS_2000DPS, 16u) == 0u);
-    /* temperature: raw/132.48 + 25 */
+    /* [DS] temperature: raw/132.48 + 25 */
     CHECK_NEAR(oamr_icm_temp_c(0), 25.0, 1e-6);
     CHECK_NEAR(oamr_icm_temp_c(1325), 25.0 + 1325.0 / 132.48, 1e-4);
     CHECK_NEAR(oamr_icm_temp_c(-1325), 25.0 - 1325.0 / 132.48, 1e-4);
-    /* 16.4 LSB = 1 deg/s */
+    /* [DS] 16.4 LSB = 1 deg/s, 2048 LSB = 1 g; [CALC] in SI units */
     CHECK_NEAR(oamr_icm_gyro_rad_s(164, OAMR_ICM_GYRO_FS_2000DPS), 10.0 * 0.017453292519943295, 1e-6);
     CHECK_NEAR(oamr_icm_accel_m_s2(2048, OAMR_ICM_ACCEL_FS_16G), 9.80665, 1e-5);
     CHECK_NEAR(oamr_icm_accel_m_s2(-32767, OAMR_ICM_ACCEL_FS_16G), -32767.0 / 2048.0 * 9.80665, 1e-3);
@@ -167,11 +184,11 @@ static void read_take_once(void)
     oamr_icm_config_t c = cfg_ok();
     CHECK(oamr_icm_init(&icm, &spi, &c) == OAMR_ICM_OK);
     uint8_t *d = &f.regs[OAMR_ICM_REG_TEMP_DATA1];
-    put_be16(&d[0], 0);      /* 25 degC */
+    put_be16(&d[0], 0);      /* [DS] 25 degC */
     put_be16(&d[2], 0);
     put_be16(&d[4], 0);
-    put_be16(&d[6], 2048);   /* +1 g on Z */
-    put_be16(&d[8], 164);    /* 10 deg/s on X */
+    put_be16(&d[6], 2048);   /* [DS] +1 g on Z at 16 g */
+    put_be16(&d[8], 164);    /* [CALC] 10 deg/s on X at 2000 dps */
     put_be16(&d[10], -164);
     put_be16(&d[12], 0);
     oamr_icm_sample_t s;

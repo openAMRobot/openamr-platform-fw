@@ -4,6 +4,19 @@
 #include "oamr/tfluna.h"
 #include "test_harness.h"
 
+/*
+ * Golden values in this file and their sources.
+ *
+ * [TFL] Benewake SJ-PM-TF-Luna A05 Product Manual: Appendix I (frame
+ *       0x59 0x59 Dist Amp Temp, checksum = low byte of the sum of bytes 0
+ *       to 7, Temp / 8 - 256 degC), section 4 (20 cm blind zone), 6.4
+ *       (Amp < 100 unreliable, Amp = 65535 or > 32768 overexposed), 6.8
+ *       (dummy distance 0), 6.9 (8 m range), as cited in
+ *       docs/architecture/sensors-and-telemetry.md. Source not verified: no
+ *       copy of the manual was available to this change.
+ * [CALC] hand arithmetic from a [TFL] layout with test inputs chosen here.
+ */
+
 /* Build a valid 9-byte frame. */
 static void make(uint8_t f[9], uint16_t dist, uint16_t amp, uint16_t temp)
 {
@@ -38,7 +51,8 @@ static int feed(oamr_tfl_t *p, const uint8_t *b, size_t n, oamr_tfl_sample_t *ou
 
 static void golden(void)
 {
-    /* 59 59 2C 01 F4 01 00 09 checksum: dist 300 cm, amp 500, temp 0x0900 = 2304 -> 32 degC */
+    /* [TFL] Appendix I layout, [CALC]: 59 59 2C 01 F4 01 00 09 checksum:
+     * dist 300 cm, amp 500, temp 0x0900 = 2304 -> 32 degC */
     const uint8_t g[9] = {0x59, 0x59, 0x2C, 0x01, 0xF4, 0x01, 0x00, 0x09, 0x00};
     uint8_t f[9];
     memcpy(f, g, 9);
@@ -80,6 +94,7 @@ static void classification(void)
         uint16_t dist, amp;
         oamr_tfl_status_t st;
     } cases[] = {
+        /* [TFL] sections 4, 6.4, 6.8, 6.9 (thresholds), source not verified */
         {0u, 50u, OAMR_TFL_NO_RETURN},     /* dummy_dist with weak signal */
         {0u, 500u, OAMR_TFL_NO_RETURN},    /* zero is never a distance */
         {150u, 99u, OAMR_TFL_WEAK},        /* amp just below threshold */
@@ -99,7 +114,7 @@ static void classification(void)
         CHECK(s.status == cases[i].st);
         CHECK(s.valid == (cases[i].st == OAMR_TFL_OK));
     }
-    /* temperature boundaries: Temp/8 - 256 */
+    /* [TFL] temperature boundaries: Temp/8 - 256; [CALC] */
     make(f, 100u, 1000u, 0u);
     CHECK(oamr_tfl_decode(f, OAMR_TFL_UNIT_CM, &s));
     CHECK_NEAR(s.temperature_c, -256.0, 1e-6);

@@ -22,9 +22,15 @@ publishes what they return.
 - **A sample is handed out once.** Parsers return each frame exactly once
   with a sequence number. The IMU driver hands out each valid sample once.
   Nothing returns an old value as new.
-- **Time** is a caller-supplied `uint32_t` microsecond clock that wraps every
-  2^32 us (about 71.6 min). All age computations use modular arithmetic. An
-  age of 2^31 us or more is treated as "in the future" and is STALE.
+- **Time** is application time: one monotonic `uint64_t` count of
+  microseconds, the same type in every module (and in `firmware/canopen`,
+  PR #49). It does not wrap, so ages are plain differences; a stamp later
+  than "now" is a caller error and is treated as STALE or as no time elapsed,
+  as each header states. Hardware counters keep their native width (a 16-bit
+  FDCAN time stamp, a 32-bit timer). The board port converts a counter to
+  application time in one place, `oamr_mono_ext_update()` in
+  `telemetry/include/oamr/mono_time.h`, which must be called at least once
+  per counter period.
 - **Status enums start at 0 = UNKNOWN**, as I8 requires.
 
 ## Modules
@@ -38,6 +44,7 @@ publishes what they return.
 | Differential odometry | `telemetry/include/oamr/diff_odometry.h` | Twist and pose from wheel speeds or counts |
 | Reset cause | `telemetry/include/oamr/reset_cause.h` | RCC_RSR to I8 reset_cause enum (proposal) |
 | Freshness | `telemetry/include/oamr/freshness.h` | Age and STALE state per data source |
+| Application time | `telemetry/include/oamr/mono_time.h` | `uint64_t` microseconds; native-width counter to application time |
 
 ### TF-Luna (Benewake)
 
@@ -104,6 +111,13 @@ from TDK datasheet DS-000347 and are listed in the header. Changes from #46:
 - a NULL SPI hook is rejected before it is called;
 - each valid sample is taken once (`oamr_icm_take_sample`).
 
+**Configuration writes are permitted.** `oamr_icm_init()` writes the bank
+select, soft reset, interrupt, full-scale/ODR and power registers of this
+sensor only. Unlike drive writes (6040h, 60FFh, NMT, SDO download), they set
+how the sensor measures, move nothing, reach no other device (own chip
+select), are read back (mismatch is CONFIG_MISMATCH) and concern an input
+that is not safety evidence. The header states this in full.
+
 INT1 data-ready time stamps (`OAMR_ICM_STAMP_INT1`) are preferred. Until INT1
 is wired, `oamr_icm_poll()` reads INT_STATUS and marks the time stamp as
 `OAMR_ICM_STAMP_POLL`. Axes stay in the sensor frame; the mounting rotation
@@ -133,6 +147,13 @@ transmits. Every decoded value carries `confirmed = false` and
 - Other Data IDs are counted (`unknown_id`, `unknown_id_last`), never
   guessed. Frames with a wrong DLC or out-of-range content are counted as
   malformed and do not change the stored values.
+- **No capture from the delivered unit exists** (2026-11-15). The decoder
+  stays locked; the host tests check it only against the documents above,
+  whose copies were not available to verify (`source not verified` next to
+  each golden value in `tests/host/sensors/test_daly_rx.c`). Tests cover
+  negative current down to raw 0 (-3000.0 A), the maximum cell index (48
+  cells, 16 temperature sensors) and wrong frame numbering (0, past the last
+  cell, out of order, repeated).
 
 ### Differential odometry
 
@@ -145,9 +166,20 @@ of each wheel and the input limits are all required. The per-wheel sign is
 there because the drive's left/right channel meaning is not settled. It
 must come from a wheels-up test, not from the vendor quick start.
 
-Rejected updates (stale, duplicate or out-of-order time stamp, non-finite
-value, dt <= 0 or > 1 s, count jump above the limit) never move the pose and
-never write a twist. After a jump or a gap the count reference is re-anchored.
+The integration interval is the difference between successive sample stamps;
+the caller does not pass one. On the speed path the newer sample's speeds
+apply over that interval.
+
+Rejected updates (stale or future-stamped input, repeated or backwards time
+stamp, non-finite value) never move the pose, never write a twist and are
+counted.
+
+**Continuity.** An interval above `max_gap_us` (no default, result GAP) or a
+count jump above `max_count_delta` (result JUMP) cannot be integrated. The
+module does not move the pose, takes the new sample as reference, sets
+`continuity_lost` and increments `continuity_lost_events`. The flag stays set
+through later good updates until the caller calls
+`oamr_odom_clear_continuity()`, so a pose step is never silent.
 
 ### Reset cause (proposal for I8 decision 6)
 
@@ -167,9 +199,8 @@ power-on also sets BORRSTF; check this on the bench.
 
 `oamr_fresh_classify()` returns UNKNOWN (not configured), NEVER, STALE or
 FRESH. A source is STALE when its age reaches the configured limit (no
-default). STALE is latched until the next sample, so a clock wrap cannot
-make an old sample FRESH again as long as the source is classified at least
-once per limit period.
+default). STALE is latched until the next sample, so a stale source turns FRESH again
+only on a new sample.
 
 ## Building and testing
 

@@ -2,6 +2,23 @@
 #include "oamr/reset_cause.h"
 #include "test_harness.h"
 
+/*
+ * Golden values in this file and their sources.
+ *
+ * [CMSIS] RCC_RSR bit positions: boards/stm32/OpenAMRobot/Drivers/CMSIS/
+ *         Device/ST/STM32H7xx/Include/stm32h723xx.h (STM32Cube FW_H7
+ *         V1.13.0, platform-fw #22), RCC_RSR_*_Pos at lines 16393 to 16421.
+ *         Checked against that file in this change. The reference manual
+ *         RM0468 itself was not consulted: source not verified.
+ * [RM]    which flags a reset sets together (PINRSTF with every internal
+ *         reset, BORRSTF with power-on): RM0468 reset section, as stated in
+ *         reset_cause.h. Revision and section number not recorded. Source
+ *         not verified; reset_cause.h asks for a bench check.
+ * [I8]    expected enum values and their priority: the proposal in
+ *         reset_cause.h for I8 decision 6 (open), BaseStatus.msg of
+ *         interfaces #38 rev 4. Source not verified in this change.
+ */
+
 static void table(void)
 {
     struct {
@@ -9,7 +26,7 @@ static void table(void)
         oamr_reset_cause_t cause;
     } cases[] = {
         {0u, OAMR_RESET_CAUSE_UNKNOWN},
-        /* power-on: POR + BOR + PIN (+ CPU, D1, D2) */
+        /* [RM] power-on: POR + BOR + PIN (+ CPU, D1, D2); [I8] expected causes */
         {OAMR_RSR_PORRSTF | OAMR_RSR_BORRSTF | OAMR_RSR_PINRSTF | OAMR_RSR_CPURSTF | OAMR_RSR_D1RSTF |
              OAMR_RSR_D2RSTF,
          OAMR_RESET_CAUSE_POWER_ON},
@@ -19,7 +36,7 @@ static void table(void)
         {OAMR_RSR_SFTRSTF | OAMR_RSR_PINRSTF | OAMR_RSR_CPURSTF, OAMR_RESET_CAUSE_SOFTWARE},
         {OAMR_RSR_IWDG1RSTF | OAMR_RSR_PINRSTF | OAMR_RSR_CPURSTF, OAMR_RESET_CAUSE_WATCHDOG},
         {OAMR_RSR_WWDG1RSTF | OAMR_RSR_PINRSTF, OAMR_RESET_CAUSE_WATCHDOG},
-        /* watchdog wins over software if flags were not cleared in between */
+        /* [I8] watchdog wins over software if flags were not cleared in between */
         {OAMR_RSR_IWDG1RSTF | OAMR_RSR_SFTRSTF | OAMR_RSR_PINRSTF, OAMR_RESET_CAUSE_WATCHDOG},
         {OAMR_RSR_LPWRRSTF | OAMR_RSR_PINRSTF, OAMR_RESET_CAUSE_UNKNOWN},
         {OAMR_RSR_CPURSTF, OAMR_RESET_CAUSE_UNKNOWN},
@@ -41,7 +58,7 @@ static void table(void)
 
 static void bit_positions(void)
 {
-    /* RM0468 / stm32h723xx.h positions */
+    /* [CMSIS] positions, verified against stm32h723xx.h in this repository */
     CHECK(OAMR_RSR_CPURSTF == 0x00020000u);
     CHECK(OAMR_RSR_D1RSTF == 0x00080000u);
     CHECK(OAMR_RSR_D2RSTF == 0x00100000u);
