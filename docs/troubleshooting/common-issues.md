@@ -1,6 +1,7 @@
 # Troubleshooting
 
-*Applies to the Teensy 4.0 `linorobot2_overlay` firmware.*
+*Applies to the Gate A (legacy) Teensy 4.0 `linorobot2_overlay` firmware, also the release fallback;
+not the 2.0 STM32H723ZG firmware.*
 
 Quick index of the failure modes seen during commissioning and where each is explained in full.
 
