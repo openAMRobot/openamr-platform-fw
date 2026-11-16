@@ -1,0 +1,448 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: permit_ctl_01_admission
+title: CTL-017 rejects MOVE_TO_STOP and START_HOMING without a valid current permit
+covers:
+- '#20 3'
+- '#20 4 CTL-017'
+- R4
+status: PROPOSAL
+kind: permit_ctl017
+params:
+  permit_timeout_s: 0.3
+param_status:
+  permit_timeout_s: TEST VALUE, TODO(Evans) I8 and CTL-017 object dictionary
+source_note: 'platform-fw #20 (owner proposals 11 to 13 Nov, platform lead reply 13 Nov), rev 5 5.5, R4, B9'
+wire: 'deliberately abstract: COB-ID, mapping, period, sequence width and session handshake are not decided (CONFLICT
+  C7)'
+cases:
+- id: no_permit_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - &id001
+      event: boot
+    - &id002
+      event: producer_session
+      params:
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      drive: STOP
+- id: false_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: false
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: PERMIT_FALSE
+- id: missing_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - event: boot
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+  note: no producer session established
+- id: stale_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+      permit_valid: true
+  - t: 0.4
+    events:
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: PERMIT_EXPIRED
+- id: duplicate_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      rejections:
+      - PERMIT_DUPLICATE
+- id: out_of_order_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 5
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 3
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      rejections:
+      - PERMIT_OUT_OF_ORDER
+- id: wrong_session_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S0
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      rejections:
+      - PERMIT_WRONG_SESSION
+- id: heartbeat_only_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: heartbeat
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+  note: a heartbeat is not a permit
+- id: valid_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: true
+        target: L1175
+    expect:
+      lift: MOVING
+      reject: null
+      drive: RUN
+- id: local_check_MOVE_TO_STOP
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: MOVE_TO_STOP
+        local_ok: false
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: LOCAL_CHECK
+  note: CTL-017 enforces travel limits, stop sensors, travel timeout and Hall window whatever the permit says (abstracted
+    as local_ok)
+- id: no_permit_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      drive: STOP
+- id: false_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: false
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: PERMIT_FALSE
+- id: missing_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - event: boot
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+  note: no producer session established
+- id: stale_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+      permit_valid: true
+  - t: 0.4
+    events:
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: PERMIT_EXPIRED
+- id: duplicate_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      rejections:
+      - PERMIT_DUPLICATE
+- id: out_of_order_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 5
+        value: true
+        session: S1
+    expect:
+      lift: IDLE
+      reject: null
+  - t: 0.1
+    events:
+    - event: permit
+      params:
+        seq: 3
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      rejections:
+      - PERMIT_OUT_OF_ORDER
+- id: wrong_session_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S0
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+      rejections:
+      - PERMIT_WRONG_SESSION
+- id: heartbeat_only_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: heartbeat
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: NO_PERMIT
+  note: a heartbeat is not a permit
+- id: valid_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: true
+        target: L1175
+    expect:
+      lift: HOMING
+      reject: null
+      drive: RUN
+- id: local_check_START_HOMING
+  steps:
+  - t: 0.0
+    events:
+    - *id001
+    - *id002
+    - event: permit
+      params:
+        seq: 1
+        value: true
+        session: S1
+    - event: cmd
+      params:
+        kind: START_HOMING
+        local_ok: false
+        target: L1175
+    expect:
+      lift: IDLE
+      reject: LOCAL_CHECK
+  note: CTL-017 enforces travel limits, stop sensors, travel timeout and Hall window whatever the permit says (abstracted
+    as local_ok)

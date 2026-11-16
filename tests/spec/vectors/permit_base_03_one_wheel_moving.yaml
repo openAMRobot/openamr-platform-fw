@@ -1,0 +1,481 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: permit_base_03_one_wheel_moving
+title: 'Either wheel moving: permit withdrawn, STOP requested, hold time restarts'
+covers:
+- '#20 4'
+status: PROPOSAL
+kind: permit_base
+params:
+  stop_v_max: 0.01
+  stop_w_max: 0.02
+  stop_hold_s: 0.5
+  wheel_stale_s: 0.1
+  arm_stale_s: 0.2
+  track_m: 0.5
+  approved_poses:
+  - STOWED
+param_status:
+  stop_v_max: 'PROPOSED platform-fw #20 (provisional, B5)'
+  stop_w_max: 'PROPOSED platform-fw #20 (provisional, B5)'
+  stop_hold_s: 'PROPOSED platform-fw #20 (provisional, B5)'
+  wheel_stale_s: TEST VALUE, TODO(Evans)
+  arm_stale_s: TEST VALUE, TODO(Evans) with manipulation owners
+  track_m: TEST VALUE, TODO(Evans) drivetrain geometry
+  approved_poses: 'CONFLICT C8: STOWED only (platform lead, Build 1) or STOWED and CARRY (owner proposal)'
+source_note: 'platform-fw #20 (owner proposals 11 to 13 Nov), rev 5 5.5 and R4, B9'
+steps:
+- t: 0.0
+  events:
+  - event: boot
+  - event: source_session
+    params:
+      source: left
+      session: B1
+  - event: source_session
+    params:
+      source: right
+      session: B1
+  - event: source_session
+    params:
+      source: arms
+      session: A1
+  - event: ctl017_link
+    params:
+      ok: true
+  expect:
+    permit: false
+    reason: BASE_FEEDBACK_INVALID
+    stop_request: false
+  note: permit false at boot
+- t: 0.05
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 1
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 1
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 1
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.1
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 2
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 2
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 2
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.15
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 3
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 3
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 3
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.2
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 4
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 4
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 4
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.25
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 5
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 5
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 5
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.3
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 6
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 6
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 6
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.35
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 7
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 7
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 7
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.4
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 8
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 8
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 8
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.45
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 9
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 9
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 9
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.5
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 10
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 10
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 10
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.55
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 11
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 11
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 11
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect: {}
+- t: 0.6
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 12
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 12
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 12
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect:
+    permit: true
+    reason: OK
+    stop_request: false
+- t: 0.65
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 13
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 13
+      v: 0.03
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 13
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect:
+    permit: false
+    reason: BASE_MOVING
+    stop_request: true
+  note: exceedance withdraws at once with STOP
+- t: 0.7
+  events:
+  - event: wheel
+    params:
+      side: left
+      seq: 14
+      v: 0.0
+      session: B1
+      valid: true
+  - event: wheel
+    params:
+      side: right
+      seq: 14
+      v: 0.0
+      session: B1
+      valid: true
+  - event: arms
+    params:
+      seq: 14
+      session: A1
+      left:
+        pose: STOWED
+        moving: false
+        fault: false
+      right:
+        pose: STOWED
+        moving: false
+        fault: false
+      bimanual: STOWED
+  expect:
+    permit: false
+    reason: BASE_STOP_NOT_QUALIFIED
+    stop_request: false
+  note: qualification interval restarts
