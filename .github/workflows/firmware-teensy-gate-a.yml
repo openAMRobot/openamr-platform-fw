@@ -82,6 +82,13 @@ jobs:
           grep -q "PLATFORM: Teensy (${TEENSY_PLATFORM#teensy@})" build.log
           sha256sum .pio/build/teensy40/firmware.hex | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: No simulation-reference symbol in the teensy40 ELF (SAF-MCU-001; no map file is linked)
+        run: |
+          nm_bin=$(find ~/.platformio/packages -path '*/bin/arm-none-eabi-nm' -print -quit)
+          test -n "$nm_bin"
+          python3 tools/ci/check_board_image_isolation.py --nm "$nm_bin" \
+            --elf upstream/firmware/.pio/build/teensy40/firmware.elf --no-map
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: teensy40-firmware
