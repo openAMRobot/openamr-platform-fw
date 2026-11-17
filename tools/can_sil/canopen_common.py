@@ -67,6 +67,10 @@ class CanopenNode:
 
     Subclasses override on_write(index, sub, value) -> abort code or None, on_read(),
     on_rx_frame(msg) and tick(dt). The node runs on its own thread; use start()/stop().
+
+    All node time (tick time, the dt passed to tick(), the heartbeat period and the subclass
+    timers) is read through _now(). A subclass may override _now() to run the node on another
+    clock, for example the simulator clock; the host sleep in _run stays a wait bound only.
     """
 
     tick_s = 0.005
@@ -85,6 +89,11 @@ class CanopenNode:
         self._running = False
         self._last_hb = 0.0
         self.rx_count = 0
+
+    @staticmethod
+    def _now():
+        """Node time in seconds. Default: host monotonic time."""
+        return time.monotonic()
 
     # hooks
     def on_write(self, index, sub, value):
@@ -129,10 +138,10 @@ class CanopenNode:
                 self._send_boot()
 
     def _run(self):
-        last = time.monotonic()
+        last = self._now()
         while self._running:
             msg = self.bus.recv(timeout=self.tick_s)
-            now = time.monotonic()
+            now = self._now()
             with self.lock:
                 if msg is not None and not self.bus_off:
                     self._handle(msg)
@@ -219,19 +228,24 @@ class CanopenNode:
 
 
 class SdoClient:
-    """Tiny blocking SDO client used by the tests and the bench scripts."""
+    """Tiny blocking SDO client used by the tests and the bench scripts.
 
-    def __init__(self, bus, node_id, timeout=0.5):
+    now: clock for the response deadline, in seconds (default host monotonic time). Each
+    blocking receive is still bounded by the remaining time on that clock.
+    """
+
+    def __init__(self, bus, node_id, timeout=0.5, now=time.monotonic):
         self.bus = bus
         self.node_id = node_id
         self.timeout = timeout
+        self._now = now
 
     def _txrx(self, payload):
         self.bus.send(can.Message(arbitration_id=SDO_RX_BASE + self.node_id, data=payload,
                                   is_extended_id=False))
-        end = time.monotonic() + self.timeout
-        while time.monotonic() < end:
-            msg = self.bus.recv(timeout=max(0.0, end - time.monotonic()))
+        end = self._now() + self.timeout
+        while self._now() < end:
+            msg = self.bus.recv(timeout=max(0.0, end - self._now()))
             if msg is not None and msg.arbitration_id == SDO_TX_BASE + self.node_id:
                 return bytes(msg.data)
         raise TimeoutError("no SDO response from node %d" % self.node_id)
