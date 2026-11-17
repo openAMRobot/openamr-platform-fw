@@ -128,3 +128,117 @@ def test_default_clock_is_host_monotonic(master):
     before = time.monotonic()
     assert before <= CanopenNode._now() <= time.monotonic()
     assert Zlac8015dEmulator._now is CanopenNode._now
+
+
+# SdoClient._txrx on a clock that runs at another rate than the host (review on #58).
+# bus.recv(timeout=...) is host wall time, so the client must poll for a short host time and
+# re-check the deadline on its own clock instead of blocking for the remaining clock duration.
+
+class ScaledClock:
+    """rate seconds of clock time per second of host time, from the first read."""
+
+    def __init__(self, rate, t=50.0):
+        self.rate = rate
+        self.t0 = t
+        self.host0 = None
+
+    def now(self):
+        if self.host0 is None:
+            self.host0 = time.monotonic()
+        return self.t0 + self.rate * (time.monotonic() - self.host0)
+
+
+def start_responder(make_bus, delay_s, node_id=9):
+    """Answer the first SDO request to node_id once, delay_s of host time after it arrives."""
+    responder = make_bus()
+    stop = threading.Event()
+
+    def run():
+        while not stop.is_set():
+            msg = responder.recv(timeout=0.05)
+            if msg is not None and msg.arbitration_id == SDO_RX_BASE + node_id:
+                if stop.wait(delay_s):
+                    return
+                responder.send(can.Message(arbitration_id=SDO_TX_BASE + node_id,
+                                           data=bytes([0x4F, 0x00, 0x10, 0x00, 7, 0, 0, 0]),
+                                           is_extended_id=False))
+                return
+
+    th = threading.Thread(target=run, daemon=True)
+    th.start()
+
+    def finish():
+        stop.set()
+        th.join(timeout=2)
+    return finish
+
+
+def test_sdo_deadline_on_a_faster_clock_is_rechecked_while_waiting(master):
+    # clock at 10x host: the 0.5 s deadline is 0.05 s of host time
+    sdo = SdoClient(master, 9, timeout=0.5, now=ScaledClock(10.0).now)  # no node 9
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        sdo.read(0x1000, 0)
+    assert time.monotonic() - start < 0.2  # blocking for the clock duration takes 0.5 s
+
+
+def test_sdo_reply_after_the_deadline_on_a_faster_clock_is_rejected(master, make_bus):
+    # clock at 10x host, deadline 0.5 s = 0.05 s host; the reply comes 0.3 s host (3 s clock)
+    # after the request, so it is late on the client clock and must not be accepted
+    finish = start_responder(make_bus, 0.3)
+    sdo = SdoClient(master, 9, timeout=0.5, now=ScaledClock(10.0).now)
+    try:
+        with pytest.raises(TimeoutError):
+            sdo.read(0x1000, 0)
+    finally:
+        finish()
+
+
+def test_sdo_reply_in_time_on_a_faster_clock_is_accepted(master, make_bus):
+    # clock at 10x host, deadline 2.0 s = 0.2 s host; reply after 0.05 s host (0.5 s clock)
+    finish = start_responder(make_bus, 0.05)
+    sdo = SdoClient(master, 9, timeout=2.0, now=ScaledClock(10.0).now)
+    try:
+        assert sdo.read(0x1000, 0) == 7
+    finally:
+        finish()
+
+
+def test_sdo_deadline_on_a_slower_clock_waits_for_the_clock(master):
+    # clock at 0.1x host: the 0.2 s deadline is 2.0 s of host time
+    sdo = SdoClient(master, 9, timeout=0.2, now=ScaledClock(0.1).now)  # no node 9
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        sdo.read(0x1000, 0)
+    elapsed = time.monotonic() - start
+    assert 1.9 <= elapsed < 2.6
+
+
+def test_sdo_reply_late_in_host_time_on_a_slower_clock_is_accepted(master, make_bus):
+    # clock at 0.1x host, deadline 0.2 s = 2.0 s host; reply after 1.0 s host (0.1 s clock),
+    # five times the 0.2 s timeout in host time
+    finish = start_responder(make_bus, 1.0)
+    sdo = SdoClient(master, 9, timeout=0.2, now=ScaledClock(0.1).now)
+    try:
+        assert sdo.read(0x1000, 0) == 7
+    finally:
+        finish()
+
+
+def test_sdo_clock_that_jumps_past_the_deadline_while_waiting_stops_promptly(master):
+    # clock frozen when the request goes out, then jumps 5 s while the client is waiting
+    clock = FakeClock(10.0)
+    sdo = SdoClient(master, 9, timeout=1.0, now=clock.now)  # no node 9
+    timer = threading.Timer(0.1, clock.advance, args=(5.0,))
+    start = time.monotonic()
+    timer.start()
+    try:
+        with pytest.raises(TimeoutError):
+            sdo.read(0x1000, 0)
+    finally:
+        timer.cancel()
+    assert time.monotonic() - start < 0.4  # blocking for the clock duration takes 1.0 s
+
+
+def test_sdo_poll_is_a_short_host_bound():
+    assert 0 < SdoClient.RECV_POLL_S <= 0.05

@@ -230,9 +230,13 @@ class CanopenNode:
 class SdoClient:
     """Tiny blocking SDO client used by the tests and the bench scripts.
 
-    now: clock for the response deadline, in seconds (default host monotonic time). Each
-    blocking receive is still bounded by the remaining time on that clock.
+    now: clock for the response deadline, in seconds (default host monotonic time). The
+    deadline is checked on that clock only. Each blocking receive waits at most RECV_POLL_S of
+    host time, so a deadline on a clock that runs faster or slower than the host is re-checked
+    promptly, and a paused clock still accepts a late reply.
     """
+
+    RECV_POLL_S = 0.01  # host-time bound of one receive wait, not a protocol timeout
 
     def __init__(self, bus, node_id, timeout=0.5, now=time.monotonic):
         self.bus = bus
@@ -244,8 +248,13 @@ class SdoClient:
         self.bus.send(can.Message(arbitration_id=SDO_RX_BASE + self.node_id, data=payload,
                                   is_extended_id=False))
         end = self._now() + self.timeout
-        while self._now() < end:
-            msg = self.bus.recv(timeout=max(0.0, end - self._now()))
+        while True:
+            left = end - self._now()
+            if left <= 0:
+                break
+            # The receive timeout is host wall time, so it is never the remaining time on an
+            # injected clock: wait one short host-time poll, then re-check the deadline.
+            msg = self.bus.recv(timeout=min(self.RECV_POLL_S, left))
             if msg is not None and msg.arbitration_id == SDO_TX_BASE + self.node_id:
                 return bytes(msg.data)
         raise TimeoutError("no SDO response from node %d" % self.node_id)
