@@ -52,6 +52,11 @@ jobs:
             exit 1
           fi
 
+      - name: No simulation-reference symbol or object in the board image (SAF-MCU-001)
+        run: |
+          python3 ../../../tools/ci/check_board_image_isolation.py --nm arm-none-eabi-nm \
+            --elf build/${{ matrix.preset }}/OpenAMRobot.elf --map build/${{ matrix.preset }}/OpenAMRobot.map
+
       - name: Ethernet DMA descriptors in RAM_D2
         run: python3 ../../../tools/ci/check_dma_placement.py build/${{ matrix.preset }}/OpenAMRobot.elf
 
