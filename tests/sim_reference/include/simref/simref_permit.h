@@ -7,6 +7,8 @@
 #ifndef SIMREF_PERMIT_H
 #define SIMREF_PERMIT_H
 
+#include "simref/simref_host_only.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
