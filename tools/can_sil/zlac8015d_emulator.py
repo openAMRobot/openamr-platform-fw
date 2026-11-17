@@ -80,7 +80,7 @@ class Zlac8015dEmulator(CanopenNode):
         self.statusword = 0
         self.enabled = False
         self.quick_stop = False
-        self.last_rx = time.monotonic()
+        self.last_rx = self._now()
         self.link_lost = False
         self.link_loss_events = 0
         self.saves = 0
@@ -151,13 +151,13 @@ class Zlac8015dEmulator(CanopenNode):
             self.enabled = False
             self.quick_stop = False
             self.link_lost = False
-            self.last_rx = time.monotonic()
+            self.last_rx = self._now()
             self.nmt_state = NMT_OPERATIONAL
             self._send_boot()
 
     # --- protocol ----------------------------------------------------------
     def on_rx_frame(self, msg):
-        self.last_rx = time.monotonic()
+        self.last_rx = self._now()
         if self.link_lost:
             self.link_lost = False
 
@@ -228,7 +228,7 @@ class Zlac8015dEmulator(CanopenNode):
     def tick(self, dt):
         timeout_ms = self.od.get(0x2000, 0)
         if (timeout_ms > 0 and not self.link_lost and
-                time.monotonic() - self.last_rx > timeout_ms / 1000.0):
+                self._now() - self.last_rx > timeout_ms / 1000.0):
             self.link_lost = True
             self.link_loss_events += 1
         for i in (0, 1):

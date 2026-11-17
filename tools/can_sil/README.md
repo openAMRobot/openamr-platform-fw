@@ -91,6 +91,16 @@ the dictionary is a proposal, `TODO(Evans)`):
 Bench speed guard (`tools/bench`): up to 0.1 m/s as given, 0.1 to 0.2 m/s capped with a
 warning, above 0.2 m/s refused (exit 2) unless `--allow-high-speed`, never above 0.5 m/s.
 
+Clock: every emulator timer reads one hook, default host monotonic time. `CanopenNode._now()`
+(seconds) gives the node tick time, the `dt` passed to `tick()`, the heartbeat period and the
+ZLAC receipt time and 2000h link-loss timer; `Ctl017Emulator._now_ms()` (ms) gives the CTL-017
+timers. `SdoClient(now=...)` sets the clock of the SDO response deadline; the client waits in
+short host-time polls (`SdoClient.RECV_POLL_S`, 10 ms) and re-checks the deadline on its clock
+after each one, so a clock faster or slower than the host is honoured and a paused clock still
+accepts a late reply. A simulator overrides the hooks in a subclass to run the emulators on its
+own clock; host sleeps and receive timeouts stay wait bounds only. Timeout values are not
+changed by the hook.
+
 ## Traces: record, replay, regression
 
 `can_trace.py` keeps bench captures as regression inputs. The file format is `candump -L`
