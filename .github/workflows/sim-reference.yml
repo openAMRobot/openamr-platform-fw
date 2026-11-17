@@ -41,7 +41,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
-          for name, minimum in (("build/simref/adapter.xml", 150), ("build/simref/guards.xml", 9)):
+          for name, minimum in (("build/simref/adapter.xml", 150), ("build/simref/guards.xml", 28)):
               root = ET.parse(name).getroot()
               s = root if root.tag == "testsuite" else root.find("testsuite")
               tests, skipped = int(s.get("tests")), int(s.get("skipped"))
@@ -89,6 +89,12 @@ jobs:
             cmake --build "$GITHUB_WORKSPACE/build/stm32-$p" 2>&1 | tee "$GITHUB_WORKSPACE/build/stm32-$p.log"
             grep -q "simref symbol guard: .*no simref_ symbol" "$GITHUB_WORKSPACE/build/stm32-$p.log"
           done
+      - name: STM32H723 Debug and Release final ELF and map inspection (SAF-MCU-001, must pass)
+        run: |
+          for p in Debug Release; do
+            python3 tools/ci/check_board_image_isolation.py --nm arm-none-eabi-nm \
+              --elf "build/stm32-$p/OpenAMRobot.elf" --map "build/stm32-$p/OpenAMRobot.map"
+          done
       - name: Negative test, a simref_ symbol injected into the board ELF must fail the build
         working-directory: boards/stm32/OpenAMRobot
         run: |
@@ -102,6 +108,39 @@ jobs:
           grep "simulation-reference symbol" -A2 "$GITHUB_WORKSPACE/build/poison.log"
           grep -q "simref_poison_marker" "$GITHUB_WORKSPACE/build/poison.log"
           echo "guard fired as required"
+      - name: Negative test, an unreferenced reference object in the board link must fail the map check
+        working-directory: boards/stm32/OpenAMRobot
+        run: |
+          # Release: --gc-sections discards the object, so the ELF carries no simref_ symbol
+          cmake --preset Release -B "$GITHUB_WORKSPACE/build/stm32-unref" \
+            "-DCMAKE_PROJECT_OpenAMRobot_INCLUDE=$GITHUB_WORKSPACE/tests/sim_reference/guard_test/poison_unreferenced_board.cmake"
+          cmake --build "$GITHUB_WORKSPACE/build/stm32-unref" 2>&1 | tee "$GITHUB_WORKSPACE/build/unref.log"
+          test "${PIPESTATUS[0]}" -eq 0 || { echo "::error::the unreferenced-object board build did not link"; exit 1; }
+          grep "simref symbol guard: .*no simref_ symbol" "$GITHUB_WORKSPACE/build/unref.log" && echo "ELF symbol guard alone passed this image"
+          cd "$GITHUB_WORKSPACE"
+          if python3 tools/ci/check_board_image_isolation.py --nm arm-none-eabi-nm \
+               --elf build/stm32-unref/OpenAMRobot.elf --map build/stm32-unref/OpenAMRobot.map > build/unref-check.log; then
+            cat build/unref-check.log
+            echo "::error::the map check passed a board link that contains a reference object"
+            exit 1
+          fi
+          cat build/unref-check.log
+          grep -q "simulation-reference object in board link .*tests/sim_reference/guard_test/poison_unreferenced.c" build/unref-check.log
+          echo "map check fired as required"
+      - name: Negative test, a real reference source added to the board target must fail at compile time
+        working-directory: boards/stm32/OpenAMRobot
+        run: |
+          cmake --preset Debug -B "$GITHUB_WORKSPACE/build/stm32-realsrc" \
+            "-DCMAKE_PROJECT_OpenAMRobot_INCLUDE=$GITHUB_WORKSPACE/tests/sim_reference/guard_test/real_source_board.cmake"
+          if cmake --build "$GITHUB_WORKSPACE/build/stm32-realsrc" > "$GITHUB_WORKSPACE/build/realsrc.log" 2>&1; then
+            cat "$GITHUB_WORKSPACE/build/realsrc.log"
+            echo "::error::a board build with tests/sim_reference/src/simref_sm.c compiled"
+            exit 1
+          fi
+          grep -B1 "must not be compiled for a board target" "$GITHUB_WORKSPACE/build/realsrc.log"
+          grep -q "simref_host_only.h.*#error" "$GITHUB_WORKSPACE/build/realsrc.log"
+          if test -e "$GITHUB_WORKSPACE/build/stm32-realsrc/OpenAMRobot.elf"; then echo "::error::an ELF was produced"; exit 1; fi
+          echo "compile-time guard fired as required"
       - name: The reference refuses to configure with the board toolchain
         run: |
           if cmake -S tests/sim_reference -B build/simref-arm \

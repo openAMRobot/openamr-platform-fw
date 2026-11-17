@@ -2,6 +2,8 @@
 #ifndef SIMREF_CAN_H
 #define SIMREF_CAN_H
 
+#include "simref/simref_host_only.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
