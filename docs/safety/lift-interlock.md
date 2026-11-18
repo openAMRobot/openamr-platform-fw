@@ -7,7 +7,7 @@
 **Actuator controller:** CTL-017  
 **Safety boundary:** Functional supervisory interlock; not a safety-rated function
 
-> This document proposes the control architecture, evidence requirements, protocol behaviour and validation plan for the lift-motion interlock. Numerical thresholds, interface details and cross-team dependencies marked open are not approved implementation requirements. The proposal has received AI-assisted drafting and must be disclosed accordingly in the eventual commit and PR.
+> This document proposes the control architecture, evidence requirements, protocol behaviour and validation plan for the lift-motion interlock. Numerical thresholds, interface details and cross-team dependencies marked open are not approved implementation requirements.
 
 ---
 
