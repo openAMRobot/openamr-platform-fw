@@ -26,6 +26,7 @@ ABORT_DEVICE_STATE = 0x08000022    # write outside PRE-OPERATIONAL or during mot
 SIZE_CS = {1: 0x2F, 2: 0x2B, 4: 0x23}  # download request command byte by size
 CS_SIZE = {v: k for k, v in SIZE_CS.items()}
 UPLOAD_RESP = {1: 0x4F, 2: 0x4B, 4: 0x43}
+CS_UPLOAD_SIZE = {v: k for k, v in UPLOAD_RESP.items()}  # expedited upload answer -> size
 
 
 class ObjectDict:
@@ -219,35 +220,49 @@ class CanopenNode:
 
 
 class SdoClient:
-    """Tiny blocking SDO client used by the tests and the bench scripts."""
+    """Tiny blocking SDO client used by the tests and the bench scripts.
+
+    An answer counts only when it is 8 bytes long, carries the index and subindex of the request
+    and the command specifier of an upload answer (read), a download confirmation (write) or an
+    abort. Any other frame from 580h + node, such as a reply that came after an earlier
+    request's timeout, is dropped and counted in ``stale_replies`` (issue #62)."""
+
+    ABORT = 0x80
 
     def __init__(self, bus, node_id, timeout=0.5):
         self.bus = bus
         self.node_id = node_id
         self.timeout = timeout
+        self.stale_replies = 0
 
-    def _txrx(self, payload):
+    def _txrx(self, payload, answers):
         self.bus.send(can.Message(arbitration_id=SDO_RX_BASE + self.node_id, data=payload,
                                   is_extended_id=False))
+        reply_id = SDO_TX_BASE + self.node_id
         end = time.monotonic() + self.timeout
         while time.monotonic() < end:
             msg = self.bus.recv(timeout=max(0.0, end - time.monotonic()))
-            if msg is not None and msg.arbitration_id == SDO_TX_BASE + self.node_id:
-                return bytes(msg.data)
+            if msg is None or msg.is_extended_id or msg.arbitration_id != reply_id:
+                continue
+            data = bytes(msg.data)
+            if (len(data) == 8 and data[1:4] == payload[1:4]
+                    and (data[0] == self.ABORT or data[0] in answers)):
+                return data
+            self.stale_replies += 1
         raise TimeoutError("no SDO response from node %d" % self.node_id)
 
     def read(self, index, sub, signed=False):
-        resp = self._txrx(struct.pack("<BHB4x", 0x40, index, sub))
-        if resp[0] == 0x80:
+        resp = self._txrx(struct.pack("<BHB4x", 0x40, index, sub), CS_UPLOAD_SIZE)
+        if resp[0] == self.ABORT:
             raise SdoAbort(struct.unpack("<I", resp[4:8])[0], index, sub)
-        size = {0x4F: 1, 0x4B: 2, 0x43: 4}[resp[0]]
+        size = CS_UPLOAD_SIZE[resp[0]]
         return unpack_value(resp[4:4 + size], signed)
 
     def write(self, index, sub, value, size, signed=False):
         payload = bytes([SIZE_CS[size]]) + struct.pack("<HB", index, sub) + \
             pack_value(value, size, signed).ljust(4, b"\x00")
-        resp = self._txrx(payload)
-        if resp[0] == 0x80:
+        resp = self._txrx(payload, (0x60,))
+        if resp[0] == self.ABORT:
             raise SdoAbort(struct.unpack("<I", resp[4:8])[0], index, sub)
 
 
