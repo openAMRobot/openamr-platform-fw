@@ -26,6 +26,7 @@ ABORT_DEVICE_STATE = 0x08000022    # write outside PRE-OPERATIONAL or during mot
 SIZE_CS = {1: 0x2F, 2: 0x2B, 4: 0x23}  # download request command byte by size
 CS_SIZE = {v: k for k, v in SIZE_CS.items()}
 UPLOAD_RESP = {1: 0x4F, 2: 0x4B, 4: 0x43}
+CS_UPLOAD_SIZE = {v: k for k, v in UPLOAD_RESP.items()}  # expedited upload answer -> size
 
 
 class ObjectDict:
@@ -67,6 +68,10 @@ class CanopenNode:
 
     Subclasses override on_write(index, sub, value) -> abort code or None, on_read(),
     on_rx_frame(msg) and tick(dt). The node runs on its own thread; use start()/stop().
+
+    All node time (tick time, the dt passed to tick(), the heartbeat period and the subclass
+    timers) is read through _now(). A subclass may override _now() to run the node on another
+    clock, for example the simulator clock; the host sleep in _run stays a wait bound only.
     """
 
     tick_s = 0.005
@@ -85,6 +90,11 @@ class CanopenNode:
         self._running = False
         self._last_hb = 0.0
         self.rx_count = 0
+
+    @staticmethod
+    def _now():
+        """Node time in seconds. Default: host monotonic time."""
+        return time.monotonic()
 
     # hooks
     def on_write(self, index, sub, value):
@@ -129,10 +139,10 @@ class CanopenNode:
                 self._send_boot()
 
     def _run(self):
-        last = time.monotonic()
+        last = self._now()
         while self._running:
             msg = self.bus.recv(timeout=self.tick_s)
-            now = time.monotonic()
+            now = self._now()
             with self.lock:
                 if msg is not None and not self.bus_off:
                     self._handle(msg)
@@ -219,35 +229,63 @@ class CanopenNode:
 
 
 class SdoClient:
-    """Tiny blocking SDO client used by the tests and the bench scripts."""
+    """Tiny blocking SDO client used by the tests and the bench scripts.
 
-    def __init__(self, bus, node_id, timeout=0.5):
+    An answer counts only when it is 8 bytes long, carries the index and subindex of the request
+    and the command specifier of an upload answer (read), a download confirmation (write) or an
+    abort. Any other frame from 580h + node, such as a reply that came after an earlier
+    request's timeout, is dropped and counted in ``stale_replies`` (issue #62).
+
+    now: clock for the response deadline, in seconds (default host monotonic time). The
+    deadline is checked on that clock only. Each blocking receive waits at most RECV_POLL_S of
+    host time, so a deadline on a clock that runs faster or slower than the host is re-checked
+    promptly, and a paused clock still accepts a late reply. A dropped frame does not end or
+    extend the wait: the loop goes on to the same deadline.
+    """
+
+    ABORT = 0x80
+    RECV_POLL_S = 0.01  # host-time bound of one receive wait, not a protocol timeout
+
+    def __init__(self, bus, node_id, timeout=0.5, now=time.monotonic):
         self.bus = bus
         self.node_id = node_id
         self.timeout = timeout
+        self._now = now
+        self.stale_replies = 0
 
-    def _txrx(self, payload):
+    def _txrx(self, payload, answers):
         self.bus.send(can.Message(arbitration_id=SDO_RX_BASE + self.node_id, data=payload,
                                   is_extended_id=False))
-        end = time.monotonic() + self.timeout
-        while time.monotonic() < end:
-            msg = self.bus.recv(timeout=max(0.0, end - time.monotonic()))
-            if msg is not None and msg.arbitration_id == SDO_TX_BASE + self.node_id:
-                return bytes(msg.data)
+        reply_id = SDO_TX_BASE + self.node_id
+        end = self._now() + self.timeout
+        while True:
+            left = end - self._now()
+            if left <= 0:
+                break
+            # The receive timeout is host wall time, so it is never the remaining time on an
+            # injected clock: wait one short host-time poll, then re-check the deadline.
+            msg = self.bus.recv(timeout=min(self.RECV_POLL_S, left))
+            if msg is None or msg.is_extended_id or msg.arbitration_id != reply_id:
+                continue
+            data = bytes(msg.data)
+            if (len(data) == 8 and data[1:4] == payload[1:4]
+                    and (data[0] == self.ABORT or data[0] in answers)):
+                return data
+            self.stale_replies += 1
         raise TimeoutError("no SDO response from node %d" % self.node_id)
 
     def read(self, index, sub, signed=False):
-        resp = self._txrx(struct.pack("<BHB4x", 0x40, index, sub))
-        if resp[0] == 0x80:
+        resp = self._txrx(struct.pack("<BHB4x", 0x40, index, sub), CS_UPLOAD_SIZE)
+        if resp[0] == self.ABORT:
             raise SdoAbort(struct.unpack("<I", resp[4:8])[0], index, sub)
-        size = {0x4F: 1, 0x4B: 2, 0x43: 4}[resp[0]]
+        size = CS_UPLOAD_SIZE[resp[0]]
         return unpack_value(resp[4:4 + size], signed)
 
     def write(self, index, sub, value, size, signed=False):
         payload = bytes([SIZE_CS[size]]) + struct.pack("<HB", index, sub) + \
             pack_value(value, size, signed).ljust(4, b"\x00")
-        resp = self._txrx(payload)
-        if resp[0] == 0x80:
+        resp = self._txrx(payload, (0x60,))
+        if resp[0] == self.ABORT:
             raise SdoAbort(struct.unpack("<I", resp[4:8])[0], index, sub)
 
 
