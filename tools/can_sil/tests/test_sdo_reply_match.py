@@ -1,4 +1,4 @@
-"""SdoClient matches each answer to its request (issue #62).
+"""SdoClient matches each answer to its request (issue #62), on the injectable clock of #58.
 
 These tests run on python-can's in-process virtual bus, so they need no vcan interface. They
 check the client's matching logic only; they are not vcan or bench evidence. Each test fails
@@ -50,6 +50,8 @@ class ScriptedServer:
             index, sub = struct.unpack("<HB", bytes(msg.data[1:4]))
             n, self.requests = self.requests, self.requests + 1
             for frame in self.script(n, cs, index, sub):
+                if not self._running:
+                    return
                 if frame[0]:
                     time.sleep(frame[0])
                 arb = frame[2] if len(frame) > 2 else TX
@@ -66,12 +68,14 @@ def pair():
     channel = "sdo-match-%d" % next(_channel)
     buses, servers = [], []
 
-    def factory(script, timeout=0.1):
+    def factory(script, timeout=0.1, now=None):
         server_bus = can.Bus(interface="virtual", channel=channel)
         client_bus = can.Bus(interface="virtual", channel=channel)
         buses.extend((server_bus, client_bus))
         servers.append(ScriptedServer(server_bus, script))
-        return SdoClient(client_bus, NODE, timeout=timeout)
+        if now is None:
+            return SdoClient(client_bus, NODE, timeout=timeout)
+        return SdoClient(client_bus, NODE, timeout=timeout, now=now)
     yield factory
     for server in servers:
         server.stop()
@@ -146,3 +150,60 @@ def test_a_late_answer_after_the_next_request_is_not_its_answer(pair):
         sdo.read(0x606C, 1, signed=True)
     assert sdo.read(0x606C, 2, signed=True) == -200
     assert sdo.stale_replies == 1
+
+
+# --- matching on the injected clock of #58 ------------------------------------------------------
+
+class Scaled:
+    """`rate` seconds of client clock per second of host time; rate 0 is a frozen clock."""
+
+    def __init__(self, rate, t=50.0):
+        self.rate, self.t0, self.host0 = rate, t, None
+
+    def now(self):
+        if self.host0 is None:
+            self.host0 = time.monotonic()
+        return self.t0 + self.rate * (time.monotonic() - self.host0)
+
+
+def stale_stream(period_s=0.005, count=400):
+    """Frames from the server that are never the answer: a 60h confirmation of another object."""
+    return [(period_s, confirm(0x2000, 1)) for _ in range(count)]
+
+
+def test_on_a_frozen_clock_stale_frames_are_dropped_and_the_late_answer_is_taken(pair):
+    """#58: a paused clock still accepts a late reply. #62: only the matching one."""
+    sdo = pair(lambda n, cs, index, sub: [(0.05, confirm(index, sub)), (0.05, upload(0x6041, 0, 1)),
+                                          (0.3, upload(index, sub, 42))], timeout=0.2, now=Scaled(0.0).now)
+    assert sdo.read(0x606C, 1, signed=True) == 42          # 0.4 s of host time, 0 s of client time
+    assert sdo.stale_replies == 2
+
+
+def test_a_stream_of_stale_frames_does_not_extend_the_deadline(pair):
+    sdo = pair(lambda n, cs, index, sub: stale_stream(), timeout=0.1)
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        sdo.read(0x606C, 1)
+    assert time.monotonic() - start < 0.3
+    assert sdo.stale_replies >= 5
+
+
+def test_on_a_faster_clock_the_deadline_fires_while_stale_frames_arrive(pair):
+    """Clock at 10x host: 0.5 s of client time is 0.05 s of host time, re-checked between frames."""
+    sdo = pair(lambda n, cs, index, sub: stale_stream(), timeout=0.5, now=Scaled(10.0).now)
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        sdo.read(0x606C, 1)
+    assert time.monotonic() - start < 0.2
+
+
+def test_on_a_slower_clock_a_matching_answer_late_in_host_time_is_taken_after_stale_frames(pair):
+    """Clock at 0.1x host: 0.2 s of client time is 2 s of host time; the answer comes after 1 s of host."""
+    sdo = pair(lambda n, cs, index, sub: [(0.2, upload(index, sub + 1, 5)), (0.8, upload(index, sub, -9))],
+               timeout=0.2, now=Scaled(0.1).now)
+    assert sdo.read(0x606C, 2, signed=True) == -9
+    assert sdo.stale_replies == 1
+
+
+def test_the_receive_wait_stays_a_short_host_bound():
+    assert SdoClient.RECV_POLL_S <= 0.01
