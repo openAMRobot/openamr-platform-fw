@@ -87,7 +87,8 @@ void HAL_ETH_MspInit(ETH_HandleTypeDef* heth)
   if(heth->Instance==ETH)
   {
     /* USER CODE BEGIN ETH_MspInit 0 */
-
+    /* Ethernet DMA descriptors reside in D2 SRAM1; clock it before ETH init. */
+    __HAL_RCC_D2SRAM1_CLK_ENABLE();
     /* USER CODE END ETH_MspInit 0 */
     /* Peripheral clock enable */
     __HAL_RCC_ETH1MAC_CLK_ENABLE();
