@@ -1,0 +1,210 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h34
+title: 'Simultaneous events in one tick: all recorded, priority picks the transition, first_reason kept'
+covers:
+- '4.1'
+- H34
+status: REV5
+steps:
+- t: 0.0
+  events:
+  - event: boot
+    params:
+      cause: POWER_ON
+  inputs:
+    run_ok: true
+    arming_ok: true
+    qualified: true
+    base_stopped: true
+    charge_pre_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_POWER_ON
+- t: 0.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.2
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    first_reason: null
+    reason_mask: []
+- t: 0.3
+  events:
+  - event: safety_ok_low
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.4
+  events:
+  - event: charge_cmd
+  expect:
+    state: CHARGING
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'ON'
+    motion_admissible: false
+    results:
+    - accepted
+- t: 0.5
+  events:
+  - event: estop_diag
+  - event: wcm_fault
+  expect:
+    state: CHARGER_FAULT
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+      wcm_latched: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - CHARGER_FAULT
+    - ESTOP_DIAG
+    first_reason: CHARGER_FAULT
+    reason_mask:
+    - CHARGER_FAULT
+    - ESTOP_DIAG
+  note: latching charger fault ranks before the other exits; E-stop diagnostic still recorded and clears reset_seen
+- t: 0.6
+  events:
+  - event: bms_fault
+  - event: reset_hold_5s
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+      wcm_latched: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - REBOOT_REQUESTED
+    - BMS_FAULT
+    first_reason: CHARGER_FAULT
+  note: 5 s hold first; repeated reasons never replace first_reason
+- t: 1.5
+  events:
+  - event: boot
+    params:
+      cause: SOFTWARE
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+      wcm_latched: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 1.6
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 1.7
+  events:
+  - event: reset_short
+  inputs:
+    run_ok: true
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+- t: 1.8
+  events:
+  - event: drive_fault
+  - event: safety_ok_low
+  - event: drive_fault
+  inputs:
+    run_ok: false
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    first_reason: DRIVE_FAULT
+    reason_mask:
+    - DRIVE_FAULT
+    - HW_SAFETY_NOT_ENABLED
+  note: same rank keeps vector order; owner ruling needed on order inside 'others' (Q7)

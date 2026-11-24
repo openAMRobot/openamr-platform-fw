@@ -1,0 +1,247 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h02
+title: UI Stop in RUN to INHIBITED; Resume with idle evidence returns to RUN; each failed precondition rejects
+covers:
+- T2
+- H2
+- R1
+status: REV5
+steps:
+- t: 0.0
+  events:
+  - event: boot
+    params:
+      cause: POWER_ON
+  inputs:
+    run_ok: true
+    arming_ok: true
+    qualified: true
+    base_stopped: true
+    charge_pre_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_POWER_ON
+- t: 0.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.2
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    first_reason: null
+    reason_mask: []
+- t: 0.3
+  events:
+  - event: ui_stop
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - UI_STOP
+- t: 0.35
+  events:
+  - event: motion_cmd
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    results:
+    - rejected
+  note: command authority discarded
+- t: 0.4
+  events:
+  - event: ui_resume
+    params:
+      session: old
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - SESSION_OLD
+    results:
+    - rejected
+- t: 0.5
+  events:
+  - event: ui_resume
+    params:
+      seq: replay
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - SEQ_REJECTED
+    results:
+    - rejected
+- t: 0.6
+  events:
+  - event: ui_resume
+  inputs:
+    base_stopped: false
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - RESUME_REJECTED
+    results:
+    - rejected
+  note: 'base moving or encoder stale. CONFLICT C4: rev 5 2.3 says LOCKED'
+- t: 0.7
+  events:
+  - event: ui_resume
+  inputs:
+    base_stopped: true
+    run_ok: false
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    results:
+    - rejected
+  note: SAFETY_OK low or a diagnostic, Jetson or BMS stale
+- t: 0.8
+  events:
+  - event: ui_resume
+  inputs:
+    run_ok: true
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+  note: no RESET needed
+- t: 0.85
+  events:
+  - event: motion_cmd
+    params:
+      queued: true
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    results:
+    - rejected
+  note: command queued before Resume is discarded
+- t: 0.9
+  events:
+  - event: motion_cmd
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: FOLLOW_CMD
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    results:
+    - accepted
+- t: 1.0
+  events:
+  - event: ui_resume
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: FOLLOW_CMD
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    results:
+    - rejected
+  note: ui_stop not asserted

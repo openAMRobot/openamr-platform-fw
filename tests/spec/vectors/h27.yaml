@@ -1,0 +1,237 @@
+# Test vector for specification review. Not firmware. Not a safety function.
+# Format and the C adapter: docs/safety/spec/adapter.md
+id: h27
+title: 'Session rules: old-session Stop honoured; old Resume, release, charge and ack rejected SESSION_OLD; replays
+  rejected'
+covers:
+- '3.1'
+- H27
+status: REV5
+not_modelled: heartbeat or session start with a stale epoch is dropped (3.1); the event model has no session-start
+  event. Owner adapter test.
+steps:
+- t: 0.0
+  events:
+  - event: boot
+    params:
+      cause: POWER_ON
+  inputs:
+    run_ok: true
+    arming_ok: true
+    qualified: true
+    base_stopped: true
+    charge_pre_ok: true
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: true
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - BOOT_POWER_ON
+- t: 0.1
+  events:
+  - event: jetson_stop_release
+  expect:
+    state: LOCKED
+    latches:
+      reset_seen: false
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'ON'
+      charge_request: 'OFF'
+    motion_admissible: false
+- t: 0.2
+  events:
+  - event: reset_short
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    first_reason: null
+    reason_mask: []
+- t: 0.3
+  events:
+  - event: ui_stop
+    params:
+      session: old
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+  note: old-session Stop restricts motion only
+- t: 0.4
+  events:
+  - event: ui_resume
+    params:
+      session: old
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - SESSION_OLD
+    results:
+    - rejected
+- t: 0.5
+  events:
+  - event: jetson_stop_release
+    params:
+      session: old
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - SESSION_OLD
+    results:
+    - rejected
+- t: 0.6
+  events:
+  - event: charge_cmd
+    params:
+      session: old
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - SESSION_OLD
+    results:
+    - rejected
+- t: 0.7
+  events:
+  - event: charger_ack
+    params:
+      session: old
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - SESSION_OLD
+    results:
+    - rejected
+- t: 0.75
+  events:
+  - event: motion_cmd
+    params:
+      session: old
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - SESSION_OLD
+    results:
+    - rejected
+- t: 0.8
+  events:
+  - event: ui_resume
+    params:
+      seq: replay
+  expect:
+    state: INHIBITED
+    latches:
+      reset_seen: true
+      ui_stop: true
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: false
+    reasons:
+    - SEQ_REJECTED
+    results:
+    - rejected
+- t: 0.9
+  events:
+  - event: ui_resume
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+- t: 1.0
+  events:
+  - event: motion_cmd
+    params:
+      seq: replay
+  expect:
+    state: RUN
+    latches:
+      reset_seen: true
+      ui_stop: false
+      jetson_stop: false
+    outputs:
+      motor: ZERO
+      lamp: 'OFF'
+      charge_request: 'OFF'
+    motion_admissible: true
+    reasons:
+    - SEQ_REJECTED
+    results:
+    - rejected
