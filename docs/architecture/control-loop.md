@@ -1,6 +1,7 @@
 # Control loop & motor control
 
-*Applies to the Teensy 4.0 `linorobot2_overlay` firmware.*
+*Applies to the Gate A (legacy) Teensy 4.0 `linorobot2_overlay` firmware, also the release fallback;
+not the 2.0 STM32H723ZG firmware.*
 
 The firmware runs a fixed-rate control loop that turns `/cmd_vel` into per-wheel PWM,
 publishes wheel odometry, and streams debug telemetry. This document describes the loop,

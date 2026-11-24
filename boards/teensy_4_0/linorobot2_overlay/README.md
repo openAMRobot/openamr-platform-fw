@@ -1,6 +1,6 @@
 # Teensy 4.0 — linorobot2 overlay
 
-Firmware for the **real OpenAMRobot differential base**, running on a **Teensy 4.0**
+Gate A (legacy) firmware for the existing OpenAMRobot base, running on a **Teensy 4.0**
 (NXP i.MX RT1062, Cortex-M7 @ 600 MHz).
 
 ## What this is (and is not)
@@ -14,7 +14,7 @@ linorobot2 firmware tree is the base; you drop these files on top of it.
 Going modular later is a clean migration — the mapping below shows which linorobot2
 internals already cover each planned module, so they can be split out one at a time.
 
-## Module mapping (Alex's plan → linorobot2 internals)
+## Module mapping (planned modules → linorobot2 internals)
 
 | Planned module (`firmware/…`) | Where it lives in this overlay / linorobot2 | Status |
 |---|---|---|

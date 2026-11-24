@@ -1,6 +1,7 @@
 # Debug & tuning interface
 
-*Applies to the Teensy 4.0 `linorobot2_overlay` firmware.*
+*Applies to the Gate A (legacy) Teensy 4.0 `linorobot2_overlay` firmware, also the release fallback;
+not the 2.0 STM32H723ZG firmware.*
 
 These topics are **additions to upstream linorobot2**, added for this robot. They were essential
 to diagnose the drivetrain and remain the live-tuning and commissioning interface. This page is
