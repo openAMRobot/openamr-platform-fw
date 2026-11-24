@@ -1,5 +1,15 @@
 # OpenAMRobot Platform Firmware
 
+## OpenAMRobot 2.0 — current firmware target
+
+**Status: development and bench validation; physical commissioning is not established by this README.** The target base controller is NUCLEO-H723ZG (STM32H723). CAN1 serves traction, CAN2 the isolated BMS link, and CAN3 auxiliary actuators including the lift. See the [2.0 controller interface](docs/architecture/base-controller-2-0-io.md) and [decision register](https://github.com/openAMRobot/.github/blob/main/decisions.yaml); reconcile any older interface revision against the current approved baseline.
+
+Powered motion requires the applicable hardware safety and firmware validation gates. Track the open [GPIO](https://github.com/openAMRobot/openamr-platform-fw/issues/66), [clock](https://github.com/openAMRobot/openamr-platform-fw/issues/67), [watchdog](https://github.com/openAMRobot/openamr-platform-fw/issues/69) and [UART](https://github.com/openAMRobot/openamr-platform-fw/issues/70) validation work.
+
+## Previous platform — Teensy maintenance and interim testing
+
+The following build, flashing and calibration instructions apply to the existing Teensy robot, not the STM32 target.
+
 Low-level motor-control firmware for the **OpenAMRobot** mobile base: micro-ROS motor
 control, encoder odometry, IMU integration, and a `/debug` telemetry/tuning contract, running
 on a **Teensy 4.0**.
