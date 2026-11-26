@@ -26,37 +26,13 @@ jobs:
       - name: Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build gcc python3-pytest python3-yaml
+          sudo apt-get install -y --no-install-recommends cmake ninja-build gcc cppcheck python3-pytest python3-yaml
           gcc --version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build and run each tests/host project
         run: |
-          set -euo pipefail
           echo "Commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-          found=0
-          for proj in tests/host/*/CMakeLists.txt; do
-            [ -f "$proj" ] || continue
-            found=1
-            dir=$(dirname "$proj"); name=$(basename "$dir")
-            echo "::group::$name"
-            cmake -S "$dir" -B "build/host/$name" -G Ninja
-            cmake --build "build/host/$name" 2>&1 | tee "build/host/$name.log"
-            if grep -E ': warning:' "build/host/$name.log"; then
-              echo "::error::Compiler warnings in $name"; exit 1
-            fi
-            ctest --test-dir "build/host/$name" --output-on-failure --no-tests=error | tee "build/host/$name.ctest"
-            echo "::endgroup::"
-            echo "- \`$name\`: $(grep -E 'tests passed' "build/host/$name.ctest" | tail -1)" >> "$GITHUB_STEP_SUMMARY"
-          done
-          if [ "$found" = 0 ]; then
-            sources=$(find firmware -name '*.c' 2>/dev/null | wc -l)
-            if [ "$sources" -gt 0 ]; then
-              echo "::error::firmware/ has $sources C source files and no tests/host project"
-              echo "- FAIL: $sources C source files under firmware/ and no tests/host project" >> "$GITHUB_STEP_SUMMARY"
-              exit 1
-            fi
-            echo "- no C sources under firmware/ and no tests/host projects: nothing to run" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          python3 tools/ci/run_host_tests.py
 
       - name: Specification checks
         run: |
@@ -67,3 +43,6 @@ jobs:
           else
             echo "- no tests/spec on this branch: nothing to run" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Static analysis
+        run: python3 tools/ci/run_host_tests.py --static-only
