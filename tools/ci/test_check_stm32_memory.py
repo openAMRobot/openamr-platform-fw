@@ -25,6 +25,9 @@ VALID_NM = """\
 20020000 R _estack
 2001f000 A _sstack
 00001000 A _Min_Stack_Size
+38800000 A __fault_retained_start
+38800080 A __fault_retained_end
+00000080 A __fault_retained_size
 08000000 00000004 T unrelated_symbol
 """
 
@@ -35,6 +38,7 @@ MEMORY
   RAM_D1 (xrw) : ORIGIN = 0x24000000, LENGTH = 320K
   RAM_D2_SRAM1 (xrw) : ORIGIN = 0x30000000, LENGTH = 16K
   RAM_D2_SRAM2 (xrw) : ORIGIN = 0x30004000, LENGTH = 16K
+  BACKUP_SRAM (xrw) : ORIGIN = 0x38800000, LENGTH = 4K
 }
 _estack = ORIGIN(DTCMRAM) + LENGTH(DTCMRAM);
 _sstack = _estack - _Min_Stack_Size;
@@ -43,6 +47,10 @@ SECTIONS
 {
   .RxDescripSection (NOLOAD) : { . = ALIGN(32); *(.RxDescripSection) } >RAM_D2_SRAM1
   .TxDescripSection (NOLOAD) : { . = ALIGN(32); *(.TxDescripSection) } >RAM_D2_SRAM1
+  .fault_retained (NOLOAD) : { . = ALIGN(8); *(.fault_retained) } >BACKUP_SRAM
+  __fault_retained_start = ADDR(.fault_retained);
+  __fault_retained_end = ADDR(.fault_retained) + SIZEOF(.fault_retained);
+  __fault_retained_size = SIZEOF(.fault_retained);
 }
 """
 VALID_IOC = "ProjectManager.HeapSize=0x200\nProjectManager.StackSize=0x1000\n"
@@ -155,6 +163,23 @@ class ElfPolicyTests(unittest.TestCase):
             "malformed nm row",
         )
 
+    def test_missing_retained_symbols(self) -> None:
+        for symbol in memory.RETAINED_SECTION_SYMBOLS:
+            with self.subTest(symbol=symbol):
+                filtered = "\n".join(
+                    line for line in VALID_NM.splitlines() if not line.endswith(f" {symbol}")
+                )
+                self.assert_elf_failure(filtered, f"required symbol {symbol} not found")
+
+    def test_retained_extent_is_checked(self) -> None:
+        wrong_address = VALID_NM.replace("38800000 A __fault_retained_start", "38000000 A __fault_retained_start")
+        self.assert_elf_failure(wrong_address, "expected Backup SRAM base")
+        wrong_size = VALID_NM.replace("00000080 A __fault_retained_size", "00000040 A __fault_retained_size")
+        self.assert_elf_failure(wrong_size, "size does not match")
+        beyond_region = VALID_NM.replace("38800080 A __fault_retained_end", "38801001 A __fault_retained_end")
+        beyond_region = beyond_region.replace("00000080 A __fault_retained_size", "00001001 A __fault_retained_size")
+        self.assert_elf_failure(beyond_region, "exceeds the 4 KiB Backup SRAM")
+
     def test_undefined_symbols_are_not_silently_accepted(self) -> None:
         changed = VALID_NM.replace("30000000 00000060 B DMARxDscrTab", "         U DMARxDscrTab")
         self.assert_elf_failure(changed, "malformed nm row")
@@ -213,6 +238,22 @@ class LinkerIocPolicyTests(unittest.TestCase):
     def test_linker_noload_is_required(self) -> None:
         report = memory.check_linker_and_ioc(VALID_LINKER.replace(" (NOLOAD)", ""), VALID_IOC)
         self.assertIn("does not retain its NOLOAD", errors(report))
+
+    def test_retained_linker_policy(self) -> None:
+        report = memory.check_linker_and_ioc(
+            VALID_LINKER.replace("ORIGIN = 0x38800000, LENGTH = 4K", "ORIGIN = 0x38800000, LENGTH = 8K"),
+            VALID_IOC,
+        )
+        self.assertIn("must reserve exactly 4 KiB", errors(report))
+        report = memory.check_linker_and_ioc(
+            VALID_LINKER.replace(">BACKUP_SRAM", ">RAM_D2_SRAM2"), VALID_IOC
+        )
+        self.assertIn(".fault_retained must target", errors(report))
+        report = memory.check_linker_and_ioc(
+            VALID_LINKER.replace("__fault_retained_size = SIZEOF(.fault_retained);", ""), VALID_IOC
+        )
+        self.assertIn("__fault_retained_size", errors(report))
+
 
 class SourcePolicyTests(unittest.TestCase):
     def check(self, msp: str = VALID_MSP, main: str = VALID_MAIN, hal: str = VALID_HAL) -> memory.Report:
@@ -347,6 +388,7 @@ class MapPolicyTests(unittest.TestCase):
 .TxDescripSection (NOLOAD)
                 0x30000060       0x60
 .data           0x20000000       0x10 load address 0x08000100
+.fault_retained 0x38800000       0x80
 """
 
     def test_valid_sections_and_empty_sram2(self) -> None:
@@ -366,6 +408,15 @@ class MapPolicyTests(unittest.TestCase):
         report = memory.check_map_policy(self.valid_map.replace(" (NOLOAD)", ""))
         self.assertTrue(report.passed, errors(report))
 
+    def test_retained_map_extent_is_required(self) -> None:
+        report = memory.check_map_policy(self.valid_map.replace(".fault_retained 0x38800000       0x80", ""))
+        self.assertIn("exactly one .fault_retained", errors(report))
+        report = memory.check_map_policy(
+            self.valid_map.replace(".fault_retained 0x38800000       0x80", ".fault_retained 0x38800000       0x1001")
+        )
+        self.assertIn("does not fit", errors(report))
+
+
 class ProfileFrameworkTests(unittest.TestCase):
     """Profiles are cumulative: a later layout satisfies every earlier profile."""
 
@@ -379,7 +430,7 @@ class ProfileFrameworkTests(unittest.TestCase):
         self.assertEqual(memory.DEFAULT_PROFILE, memory.PROFILES[-1])
 
     def test_memory_init_accepts_the_base_layout(self) -> None:
-        nm = self.without(VALID_NM, "sensor_usart")
+        nm = self.without(VALID_NM, "sensor_usart", "__fault_retained")
         report = memory.check_elf_symbols(nm, "memory-init")
         self.assertTrue(report.passed, errors(report))
 
@@ -404,7 +455,7 @@ class ProfileFrameworkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             files = {
-                "STM32H723xG_flash.ld": VALID_LINKER,
+                "STM32H723xG_flash.ld": self.without(VALID_LINKER, "BACKUP_SRAM", "fault_retained"),
                 "OpenAMRobot.ioc": VALID_IOC,
                 "Core/Src/stm32h7xx_hal_msp.c": VALID_MSP,
                 "Core/Src/main.c": VALID_MAIN,
@@ -415,10 +466,10 @@ class ProfileFrameworkTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
             nm_output = root / "nm.txt"
-            nm_output.write_text(self.without(VALID_NM, "sensor_usart"), encoding="utf-8")
+            nm_output.write_text(self.without(VALID_NM, "sensor_usart", "__fault_retained"), encoding="utf-8")
             elf = root / "fixture.elf"
             elf.touch()
-            elf.with_suffix(".map").write_text(MapPolicyTests.valid_map, encoding="utf-8")
+            elf.with_suffix(".map").write_text(self.without(MapPolicyTests.valid_map, "fault_retained"), encoding="utf-8")
             stdout, stderr = io.StringIO(), io.StringIO()
             with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 result = memory.main([
@@ -451,6 +502,38 @@ class SensorsProfileTests(unittest.TestCase):
     def test_default_profile_rejects_a_layout_without_sensor_buffers(self) -> None:
         nm = self.without(VALID_NM, "sensor_usart")
         self.assertFalse(memory.check_elf_symbols(nm).passed)
+
+
+class RetainedProfileTests(unittest.TestCase):
+    without = staticmethod(ProfileFrameworkTests.without)
+    NO_RETAINED_LINKER = ProfileFrameworkTests.without(VALID_LINKER, "BACKUP_SRAM", "fault_retained")
+    NO_RETAINED_MAP = ProfileFrameworkTests.without(MapPolicyTests.valid_map, "fault_retained")
+
+    def test_retained_profile_requires_the_retention_symbols(self) -> None:
+        nm = self.without(VALID_NM, "__fault_retained")
+        report = memory.check_elf_symbols(nm, "retained")
+        self.assertIn("required symbol __fault_retained_start not found", errors(report))
+        self.assertTrue(memory.check_elf_symbols(nm, "sensors").passed)
+
+    def test_backup_region_is_required_only_by_the_retained_profile(self) -> None:
+        for profile in ("memory-init", "sensors"):
+            with self.subTest(profile=profile):
+                report = memory.check_linker_and_ioc(self.NO_RETAINED_LINKER, VALID_IOC, profile)
+                self.assertTrue(report.passed, errors(report))
+        report = memory.check_linker_and_ioc(self.NO_RETAINED_LINKER, VALID_IOC, "retained")
+        self.assertIn("exactly one Backup SRAM region", errors(report))
+        self.assertTrue(memory.check_linker_and_ioc(VALID_LINKER, VALID_IOC, "memory-init").passed)
+
+    def test_retained_map_section_is_required_only_by_the_retained_profile(self) -> None:
+        for profile in ("memory-init", "sensors"):
+            with self.subTest(profile=profile):
+                self.assertTrue(memory.check_map_policy(self.NO_RETAINED_MAP, profile).passed)
+        report = memory.check_map_policy(self.NO_RETAINED_MAP, "retained")
+        self.assertIn("exactly one .fault_retained", errors(report))
+
+    def test_default_profile_rejects_a_layout_without_retention(self) -> None:
+        self.assertFalse(memory.check_elf_symbols(self.without(VALID_NM, "__fault_retained")).passed)
+        self.assertEqual(memory.DEFAULT_PROFILE, "retained")
 
 
 class CommandFixtureTests(unittest.TestCase):

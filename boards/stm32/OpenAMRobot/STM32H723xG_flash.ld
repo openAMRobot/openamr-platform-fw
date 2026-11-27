@@ -60,6 +60,7 @@ RAM_D1 (xrw)      : ORIGIN = 0x24000000, LENGTH = 320K
 RAM_D2_SRAM1 (xrw) : ORIGIN = 0x30000000, LENGTH = 16K
 RAM_D2_SRAM2 (xrw) : ORIGIN = 0x30004000, LENGTH = 16K
 RAM_D3 (xrw)      : ORIGIN = 0x38000000, LENGTH = 16K
+BACKUP_SRAM (xrw) : ORIGIN = 0x38800000, LENGTH = 4K
 ITCMRAM (xrw)      : ORIGIN = 0x00000000, LENGTH = 64K
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 1024K
 }
@@ -203,6 +204,20 @@ SECTIONS
   ASSERT(__sensor_dma_size == 0x200, "Sensor DMA buffers must occupy exactly 512 bytes")
   ASSERT(__sensor_dma_end <= ORIGIN(RAM_D2_SRAM1) + LENGTH(RAM_D2_SRAM1), "Sensor DMA buffers exceed SRAM1")
 
+  /* Reset-retained diagnostic records are outside startup .data/.bss handling.
+   * Retention through actual power loss depends on the board's backup supply. */
+  .fault_retained (NOLOAD) :
+  {
+    . = ALIGN(8);
+    __fault_retained_start = .;
+    KEEP(*(.fault_retained))
+    . = ALIGN(8);
+    __fault_retained_end = .;
+  } >BACKUP_SRAM
+  __fault_retained_size = __fault_retained_end - __fault_retained_start;
+  ASSERT(__fault_retained_start == ORIGIN(BACKUP_SRAM), "Fault retention must start at Backup SRAM base")
+  ASSERT(__fault_retained_size > 0, "Fault retention storage must be linked")
+  ASSERT(__fault_retained_end <= ORIGIN(BACKUP_SRAM) + LENGTH(BACKUP_SRAM), "Fault retention exceeds Backup SRAM")
 
   /* Initialized data sections goes into RAM, load LMA copy after code */
   .data :

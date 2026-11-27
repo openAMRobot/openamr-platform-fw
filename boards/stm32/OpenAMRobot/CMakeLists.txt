@@ -48,6 +48,8 @@ add_library(oamr_common STATIC
     ${OAMR_FIRMWARE_ROOT}/diagnostics/src/reset_cause.c
     ${OAMR_FIRMWARE_ROOT}/diagnostics/src/fault_record.c
     ${OAMR_FIRMWARE_ROOT}/diagnostics/src/diagnostic_tx.c
+    ${OAMR_FIRMWARE_ROOT}/diagnostics/src/exception_frame.c
+    ${OAMR_FIRMWARE_ROOT}/diagnostics/src/fault_retained.c
 )
 target_include_directories(oamr_common PUBLIC
     ${OAMR_FIRMWARE_ROOT}/common/include
@@ -81,6 +83,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/sensor_uart_callbacks.c
     App/Src/fdcan_adapter.c
     App/Src/diagnostics_uart.c
+    App/Src/fault_capture.c
+    App/Src/fault_reporter.c
+    App/Src/fault_handlers.s
 )
 
 # Add include paths

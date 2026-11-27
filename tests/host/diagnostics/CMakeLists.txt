@@ -70,6 +70,8 @@ add_library(oamr_diagnostics_portable STATIC
     "${OAMR_DIAGNOSTICS_SOURCE_DIR}/reset_cause.c"
     "${OAMR_DIAGNOSTICS_SOURCE_DIR}/fault_record.c"
     "${OAMR_DIAGNOSTICS_SOURCE_DIR}/diagnostic_tx.c"
+    "${OAMR_DIAGNOSTICS_SOURCE_DIR}/exception_frame.c"
+    "${OAMR_DIAGNOSTICS_SOURCE_DIR}/fault_retained.c"
 )
 target_include_directories(oamr_diagnostics_portable PUBLIC
     "${OAMR_DIAGNOSTICS_INCLUDE_DIR}"
@@ -94,6 +96,12 @@ oamr_add_diagnostics_test(test_reset_cause test_reset_cause.c
     "${OAMR_DIAGNOSTICS_SOURCE_DIR}/reset_cause.c")
 oamr_add_diagnostics_test(test_fault_record test_fault_record.c
     "${OAMR_DIAGNOSTICS_SOURCE_DIR}/fault_record.c")
+oamr_add_diagnostics_test(test_exception_frame test_exception_frame.c
+    "${OAMR_DIAGNOSTICS_SOURCE_DIR}/exception_frame.c")
+oamr_add_diagnostics_test(test_fault_retained test_fault_retained.c
+    "${OAMR_DIAGNOSTICS_SOURCE_DIR}/fault_retained.c")
+target_compile_definitions(test_fault_retained PRIVATE OAMR_FAULT_RETAINED_TEST_HOOK)
+target_link_libraries(test_fault_retained PRIVATE oamr_diagnostics_portable)
 oamr_add_diagnostics_test(test_diagnostic_tx test_diagnostic_tx.c)
 target_link_libraries(test_diagnostic_tx PRIVATE oamr_diagnostics_portable)
 
@@ -128,3 +136,16 @@ target_link_libraries(test_diagnostics_uart PRIVATE
 oamr_enable_strict_warnings(test_diagnostics_uart)
 add_test(NAME test_diagnostics_uart COMMAND test_diagnostics_uart)
 
+oamr_add_diagnostics_test(test_fault_reporter test_fault_reporter.c
+    "${OAMR_DIAGNOSTICS_ROOT}/boards/stm32/OpenAMRobot/App/Src/fault_reporter.c")
+target_include_directories(test_fault_reporter PRIVATE
+    "${OAMR_DIAGNOSTICS_BOARD_INCLUDE_DIR}")
+target_link_libraries(test_fault_reporter PRIVATE oamr_diagnostics_portable)
+
+oamr_add_diagnostics_test(test_fault_capture test_fault_capture.c
+    "${OAMR_DIAGNOSTICS_ROOT}/boards/stm32/OpenAMRobot/App/Src/fault_capture.c")
+target_compile_definitions(test_fault_capture PRIVATE OAMR_FAULT_CAPTURE_TEST_TERMINAL)
+target_include_directories(test_fault_capture PRIVATE
+    "${OAMR_DIAGNOSTICS_BOARD_INCLUDE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fault_fakes")
+target_link_libraries(test_fault_capture PRIVATE oamr_diagnostics_portable)
