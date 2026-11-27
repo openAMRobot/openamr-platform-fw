@@ -57,18 +57,20 @@ MEMORY
 {
 DTCMRAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
 RAM_D1 (xrw)      : ORIGIN = 0x24000000, LENGTH = 320K
-RAM_D2 (xrw)      : ORIGIN = 0x30000000, LENGTH = 32K
+RAM_D2_SRAM1 (xrw) : ORIGIN = 0x30000000, LENGTH = 16K
+RAM_D2_SRAM2 (xrw) : ORIGIN = 0x30004000, LENGTH = 16K
 RAM_D3 (xrw)      : ORIGIN = 0x38000000, LENGTH = 16K
 ITCMRAM (xrw)      : ORIGIN = 0x00000000, LENGTH = 64K
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 1024K
 }
 
-/* Highest address of the user mode stack */
-_estack = ORIGIN(DTCMRAM) + LENGTH(DTCMRAM);    /* end of RAM */
-_sstack = _estack - _Min_Stack_Size;
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0x200;      /* required amount of heap  */
 _Min_Stack_Size = 0x1000; /* required amount of stack */
+
+/* Reserved main-stack bounds at the top of DTCMRAM */
+_estack = ORIGIN(DTCMRAM) + LENGTH(DTCMRAM);
+_sstack = _estack - _Min_Stack_Size;
 
 /* Define output sections */
 SECTIONS
@@ -155,8 +157,36 @@ SECTIONS
   /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 
-  .RxDescripSection (NOLOAD) : { . = ALIGN(32); *(.RxDescripSection) } >RAM_D2
-  .TxDescripSection (NOLOAD) : { . = ALIGN(32); *(.TxDescripSection) } >RAM_D2
+  /* Ethernet descriptors occupy the first 192 bytes of D2 SRAM1. */
+  .RxDescripSection (NOLOAD) :
+  {
+    . = ALIGN(32);
+    __eth_rx_descriptors_start = .;
+    KEEP(*(.RxDescripSection))
+    . = ALIGN(32);
+    __eth_rx_descriptors_end = .;
+  } >RAM_D2_SRAM1
+  __eth_rx_descriptors_size = __eth_rx_descriptors_end - __eth_rx_descriptors_start;
+
+  .TxDescripSection (NOLOAD) :
+  {
+    . = ALIGN(32);
+    __eth_tx_descriptors_start = .;
+    KEEP(*(.TxDescripSection))
+    . = ALIGN(32);
+    __eth_tx_descriptors_end = .;
+  } >RAM_D2_SRAM1
+  __eth_tx_descriptors_size = __eth_tx_descriptors_end - __eth_tx_descriptors_start;
+
+  __eth_descriptors_start = __eth_rx_descriptors_start;
+  __eth_descriptors_end = __eth_tx_descriptors_end;
+  __eth_descriptors_size = __eth_descriptors_end - __eth_descriptors_start;
+
+  ASSERT(__eth_rx_descriptors_start == ORIGIN(RAM_D2_SRAM1), "Ethernet RX descriptors must start at SRAM1 base")
+  ASSERT(__eth_rx_descriptors_end <= ORIGIN(RAM_D2_SRAM1) + 0x60, "Ethernet RX descriptors overlap TX descriptors")
+  ASSERT(__eth_tx_descriptors_start == ORIGIN(RAM_D2_SRAM1) + 0x60, "Ethernet TX descriptors must start at SRAM1 + 0x60")
+  ASSERT(__eth_descriptors_end <= ORIGIN(RAM_D2_SRAM1) + LENGTH(RAM_D2_SRAM1), "Ethernet descriptors exceed SRAM1")
+
 
   /* Initialized data sections goes into RAM, load LMA copy after code */
   .data :

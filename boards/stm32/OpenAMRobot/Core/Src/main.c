@@ -100,7 +100,30 @@ static void MX_UART5_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#if defined(DEBUG)
+extern uint32_t _sstack;
 
+/* Keep watermark locals out of the region being painted. High-water measurement
+ * is intentionally not provided yet. */
+__attribute__((naked, noinline, used)) static void Debug_StackWatermarkInit(void)
+{
+  __asm volatile
+  (
+    "ldr r0, =_sstack\n"
+    "mrs r1, MSP\n"
+    "bic r1, r1, #3\n"
+    "ldr r2, =0xA5A5A5A5\n"
+    "1: cmp r0, r1\n"
+    "bcs 2f\n"
+    "str r2, [r0], #4\n"
+    "b 1b\n"
+    "2: bx lr\n"
+    :
+    :
+    : "r0", "r1", "r2", "memory"
+  );
+}
+#endif
 /* USER CODE END 0 */
 
 /**
@@ -111,7 +134,9 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+#if defined(DEBUG)
+  Debug_StackWatermarkInit();
+#endif
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/
