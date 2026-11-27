@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "diagnostics_uart.h"
 #include "fdcan_adapter.h"
 #include "oamr_board_smoke.h"
 #include "mb7060_sensor.h"
@@ -81,9 +82,11 @@ UART_HandleTypeDef huart5;
 UART_HandleTypeDef huart7;
 UART_HandleTypeDef huart8;
 UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart3;
 UART_HandleTypeDef huart6;
 
 /* USER CODE BEGIN PV */
+static uint32_t diagnostics_reset_flags;
 
 /* USER CODE END PV */
 
@@ -104,6 +107,7 @@ static void MX_FDCAN3_Init(void);
 static void MX_SPI4_Init(void);
 static void MX_UART7_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_USART3_UART_Init(void);
 static void MX_USART6_UART_Init(void);
 static void MX_ETH_Init(void);
 static void MX_UART8_Init(void);
@@ -149,6 +153,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  /* Preserve every reset cause before any initialization can clear RSR. */
+  diagnostics_reset_flags = diagnostics_uart_capture_reset_flags();
 #if defined(DEBUG)
   Debug_StackWatermarkInit();
 #endif
@@ -183,6 +189,7 @@ int main(void)
   MX_SPI4_Init();
   MX_UART7_Init();
   MX_USART2_UART_Init();
+  MX_USART3_UART_Init();
   MX_USART6_UART_Init();
   MX_ETH_Init();
   MX_UART8_Init();
@@ -215,17 +222,32 @@ int main(void)
 
   /* Raw DMA may run before the delivered TF-Luna units are confirmed, but
    * sensor_dma_init leaves parsing disabled until explicit configuration. */
+  (void)diagnostics_uart_init(&huart3, diagnostics_reset_flags);
   bool sensors_ready = sensor_dma_init();
+  if (!sensors_ready)
+  {
+    diagnostics_uart_report_startup_failure("sensor_dma", huart2.ErrorCode | huart6.ErrorCode);
+  }
   if (sensors_ready && !mb7060_sensor_init(MB7060_READING_TIMEOUT_US, MB7060_INTER_SENSOR_GAP_US))
   {
+    diagnostics_uart_report_startup_failure("mb7060", 1U);
     sensors_ready = false;
   }
 
   /* Start CAN receive/error paths only: FDCAN1/3 are bus-monitoring diagnostics,
    * FDCAN2 has no scheduled request, and no actuator state is changed. */
-  (void)fdcan_adapter_init();
+  bool fdcan_ready = fdcan_adapter_init();
+  if (!fdcan_ready)
+  {
+    uint32_t fdcan_error = hfdcan1.ErrorCode | hfdcan2.ErrorCode | hfdcan3.ErrorCode;
+    diagnostics_uart_report_startup_failure("fdcan", fdcan_error);
+  }
+  diagnostics_uart_report_boot(sensors_ready, fdcan_ready);
   if (!sensors_ready)
   {
+    /* Keep the established sensor failure behavior; reporting never replaces it.
+     * Error_Handler disables interrupts, so queued diagnostics are best-effort
+     * only and may remain undelivered on this terminal path. */
     Error_Handler();
   }
   
@@ -238,6 +260,7 @@ int main(void)
     sensor_dma_poll(HAL_GetTick());
     mb7060_sensor_poll();
     fdcan_adapter_poll(HAL_GetTick());
+    diagnostics_uart_poll();
 
     /* USER CODE END WHILE */
 
@@ -804,6 +827,35 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 2 */
 
+}
+
+/**
+  * @brief USART3 Initialization Function: ST-LINK VCP diagnostics.
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart3, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK ||
+      HAL_UARTEx_SetRxFifoThreshold(&huart3, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK ||
+      HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /**
