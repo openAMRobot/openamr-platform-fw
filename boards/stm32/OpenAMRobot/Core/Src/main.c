@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "fdcan_adapter.h"
 #include "oamr_board_smoke.h"
 #include "mb7060_sensor.h"
 #include "sensor_dma.h"
@@ -219,6 +220,10 @@ int main(void)
   {
     sensors_ready = false;
   }
+
+  /* Start CAN receive/error paths only: FDCAN1/3 are bus-monitoring diagnostics,
+   * FDCAN2 has no scheduled request, and no actuator state is changed. */
+  (void)fdcan_adapter_init();
   if (!sensors_ready)
   {
     Error_Handler();
@@ -232,6 +237,7 @@ int main(void)
   {
     sensor_dma_poll(HAL_GetTick());
     mb7060_sensor_poll();
+    fdcan_adapter_poll(HAL_GetTick());
 
     /* USER CODE END WHILE */
 
@@ -364,7 +370,7 @@ static void MX_FDCAN1_Init(void)
   /* USER CODE END FDCAN1_Init 1 */
   hfdcan1.Instance = FDCAN1;
   hfdcan1.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
-  hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
+  hfdcan1.Init.Mode = FDCAN_MODE_BUS_MONITORING;
   hfdcan1.Init.AutoRetransmission = ENABLE;
   hfdcan1.Init.TransmitPause = DISABLE;
   hfdcan1.Init.ProtocolException = DISABLE;
@@ -387,7 +393,7 @@ static void MX_FDCAN1_Init(void)
   hfdcan1.Init.RxBufferSize = FDCAN_DATA_BYTES_8;
   hfdcan1.Init.TxEventsNbr = 0;
   hfdcan1.Init.TxBuffersNbr = 0;
-  hfdcan1.Init.TxFifoQueueElmtsNbr = 8;
+  hfdcan1.Init.TxFifoQueueElmtsNbr = 0;
   hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
   hfdcan1.Init.TxElmtSize = FDCAN_DATA_BYTES_8;
   if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
@@ -395,7 +401,8 @@ static void MX_FDCAN1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN FDCAN1_Init 2 */
-
+  /* Diagnostic-only bus monitoring is intentional until exact CANopen filters
+   * are approved. No FDCAN1 transmission API is provided by the application. */
   /* USER CODE END FDCAN1_Init 2 */
 
 }
@@ -429,9 +436,9 @@ static void MX_FDCAN2_Init(void)
   hfdcan2.Init.DataSyncJumpWidth = 1;
   hfdcan2.Init.DataTimeSeg1 = 1;
   hfdcan2.Init.DataTimeSeg2 = 1;
-  hfdcan2.Init.MessageRAMOffset = 256;
-  hfdcan2.Init.StdFiltersNbr = 1;
-  hfdcan2.Init.ExtFiltersNbr = 0;
+  hfdcan2.Init.MessageRAMOffset = 512;
+  hfdcan2.Init.StdFiltersNbr = 0;
+  hfdcan2.Init.ExtFiltersNbr = 1;
   hfdcan2.Init.RxFifo0ElmtsNbr = 16;
   hfdcan2.Init.RxFifo0ElmtSize = FDCAN_DATA_BYTES_8;
   hfdcan2.Init.RxFifo1ElmtsNbr = 0;
@@ -470,7 +477,7 @@ static void MX_FDCAN3_Init(void)
   /* USER CODE END FDCAN3_Init 1 */
   hfdcan3.Instance = FDCAN3;
   hfdcan3.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
-  hfdcan3.Init.Mode = FDCAN_MODE_NORMAL;
+  hfdcan3.Init.Mode = FDCAN_MODE_BUS_MONITORING;
   hfdcan3.Init.AutoRetransmission = ENABLE;
   hfdcan3.Init.TransmitPause = DISABLE;
   hfdcan3.Init.ProtocolException = DISABLE;
@@ -482,7 +489,7 @@ static void MX_FDCAN3_Init(void)
   hfdcan3.Init.DataSyncJumpWidth = 1;
   hfdcan3.Init.DataTimeSeg1 = 1;
   hfdcan3.Init.DataTimeSeg2 = 1;
-  hfdcan3.Init.MessageRAMOffset = 512;
+  hfdcan3.Init.MessageRAMOffset = 1024;
   hfdcan3.Init.StdFiltersNbr = 1;
   hfdcan3.Init.ExtFiltersNbr = 0;
   hfdcan3.Init.RxFifo0ElmtsNbr = 16;
@@ -493,7 +500,7 @@ static void MX_FDCAN3_Init(void)
   hfdcan3.Init.RxBufferSize = FDCAN_DATA_BYTES_8;
   hfdcan3.Init.TxEventsNbr = 0;
   hfdcan3.Init.TxBuffersNbr = 0;
-  hfdcan3.Init.TxFifoQueueElmtsNbr = 8;
+  hfdcan3.Init.TxFifoQueueElmtsNbr = 0;
   hfdcan3.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
   hfdcan3.Init.TxElmtSize = FDCAN_DATA_BYTES_8;
   if (HAL_FDCAN_Init(&hfdcan3) != HAL_OK)
@@ -501,7 +508,8 @@ static void MX_FDCAN3_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN FDCAN3_Init 2 */
-
+  /* Diagnostic-only bus monitoring is intentional until exact CANopen filters
+   * are approved. No FDCAN3 transmission API is provided by the application. */
   /* USER CODE END FDCAN3_Init 2 */
 
 }

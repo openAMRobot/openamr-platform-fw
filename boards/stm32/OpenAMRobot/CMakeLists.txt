@@ -44,6 +44,7 @@ add_library(oamr_common STATIC
     ${OAMR_FIRMWARE_ROOT}/common/src/time.c
     ${OAMR_FIRMWARE_ROOT}/common/src/freshness.c
     ${OAMR_FIRMWARE_ROOT}/common/src/bounded_queue.c
+    ${OAMR_FIRMWARE_ROOT}/transport/src/fdcan_recovery.c
 )
 target_include_directories(oamr_common PUBLIC
     ${OAMR_FIRMWARE_ROOT}/common/include
@@ -74,6 +75,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/sensor_dma.c
     App/Src/mb7060_sensor.c
     App/Src/sensor_uart_callbacks.c
+    App/Src/fdcan_adapter.c
 )
 
 # Add include paths
