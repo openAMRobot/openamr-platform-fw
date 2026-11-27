@@ -52,8 +52,12 @@ jobs:
             exit 1
           fi
 
-      - name: Ethernet DMA descriptors in RAM_D2
-        run: python3 ../../../tools/ci/check_dma_placement.py build/${{ matrix.preset }}/OpenAMRobot.elf
+      - name: Ethernet DMA descriptors and memory policy
+        run: python3 ../../../tools/ci/check_stm32_memory.py --profile memory-init build/${{ matrix.preset }}/OpenAMRobot.elf
+
+      - name: Memory checker negative fixtures
+        working-directory: .
+        run: python3 tools/ci/test_check_stm32_memory.py
 
       - name: Size report
         run: |
