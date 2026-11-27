@@ -53,7 +53,7 @@ jobs:
           fi
 
       - name: Ethernet DMA descriptors and memory policy
-        run: python3 ../../../tools/ci/check_stm32_memory.py --profile memory-init build/${{ matrix.preset }}/OpenAMRobot.elf
+        run: python3 ../../../tools/ci/check_stm32_memory.py --profile sensors build/${{ matrix.preset }}/OpenAMRobot.elf
 
       - name: Memory checker negative fixtures
         working-directory: .

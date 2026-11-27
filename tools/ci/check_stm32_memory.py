@@ -5,9 +5,10 @@ The default board paths are resolved from this file, not from the caller's
 working directory.  ``--nm-output`` and the individual source-path options are
 intended for deterministic, stdlib-only test fixtures.
 
-Profiles (``--profile``) select which layout rules apply. Only ``memory-init`` exists
-in this stage (Ethernet descriptors, stack, SRAM split); later layouts add profiles
-that are cumulative, so a later layout always satisfies the earlier ones.
+Profiles (``--profile``) select which layout rules apply, cumulatively:
+``memory-init`` (Ethernet descriptors, stack, SRAM split) and ``sensors`` (adds the
+two sensor DMA buffers). A later layout still satisfies every earlier profile; an
+earlier layout fails a later profile on purpose.
 
 This is static evidence only.  In particular, the vendor HAL call-order check
 is source inspection, not runtime instrumentation or a hardware DMA test.
@@ -47,12 +48,17 @@ DESCRIPTOR_SYMBOLS = {
 }
 STACK_SYMBOLS = ("_estack", "_sstack", "_Min_Stack_Size")
 DESCRIPTOR_SECTIONS = (".RxDescripSection", ".TxDescripSection")
+SENSOR_DMA_SYMBOLS = ("sensor_usart2_rx_buffer", "sensor_usart6_rx_buffer")
+SENSOR_DMA_START = 0x300000C0
+SENSOR_DMA_SIZE = 0x100
+SENSOR_DMA_END = 0x300002C0
 
 
-PROFILES = ("memory-init",)
-DEFAULT_PROFILE = "memory-init"
+PROFILES = ("memory-init", "sensors")
+DEFAULT_PROFILE = "sensors"
 _PROFILE_FEATURES = {
     "memory-init": frozenset(),
+    "sensors": frozenset({"sensors"}),
 }
 
 
@@ -64,10 +70,11 @@ def _features(profile: str) -> frozenset[str]:
 
 
 def _required_symbols(profile: str) -> tuple[str, ...]:
-    _features(profile)  # rejects unknown profiles
+    features = _features(profile)
     return (
         *DESCRIPTOR_SYMBOLS,
         *STACK_SYMBOLS,
+        *(SENSOR_DMA_SYMBOLS if "sensors" in features else ()),
     )
 
 
@@ -156,6 +163,7 @@ def _extent_intersects(address: int, size: int, start: int, end: int) -> bool:
 def check_elf_symbols(nm_output: str, profile: str = DEFAULT_PROFILE) -> Report:
     """Validate exact descriptor extents and absolute linker stack symbols."""
     report = Report()
+    features = _features(profile)
     symbols, parse_errors = parse_nm_output(nm_output, profile)
     for error in parse_errors:
         report.error(error)
@@ -212,6 +220,21 @@ def check_elf_symbols(nm_output: str, profile: str = DEFAULT_PROFILE) -> Report:
             )
         else:
             report.note("RX/TX descriptor extents do not overlap; no packet-buffer placement is assumed")
+
+    for index, name in enumerate(SENSOR_DMA_SYMBOLS if "sensors" in features else ()):
+        symbol = symbols.get(name)
+        if symbol is None:
+            continue
+        expected_address = SENSOR_DMA_START + index * SENSOR_DMA_SIZE
+        if symbol.address != expected_address or symbol.size != SENSOR_DMA_SIZE:
+            report.error(
+                f"{name} is 0x{symbol.address:08X}/0x{symbol.size:X}; "
+                f"expected 0x{expected_address:08X}/0x{SENSOR_DMA_SIZE:X}"
+            )
+        elif symbol.address % DESCRIPTOR_ALIGNMENT != 0 or symbol.address + symbol.size > SENSOR_DMA_END:
+            report.error(f"{name} violates sensor DMA alignment or extent")
+        else:
+            report.note(f"{name}: 256-byte circular buffer at 0x{symbol.address:08X} in SRAM1")
 
     estack = symbols.get("_estack")
     sstack = symbols.get("_sstack")

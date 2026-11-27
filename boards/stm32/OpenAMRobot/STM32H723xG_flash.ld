@@ -187,6 +187,22 @@ SECTIONS
   ASSERT(__eth_tx_descriptors_start == ORIGIN(RAM_D2_SRAM1) + 0x60, "Ethernet TX descriptors must start at SRAM1 + 0x60")
   ASSERT(__eth_descriptors_end <= ORIGIN(RAM_D2_SRAM1) + LENGTH(RAM_D2_SRAM1), "Ethernet descriptors exceed SRAM1")
 
+  /* Two independent 256-byte circular UART RX buffers, after Ethernet. */
+  .sensor_dma (NOLOAD) :
+  {
+    . = ALIGN(32);
+    __sensor_dma_start = .;
+    KEEP(*(.sensor_dma.usart2_rx))
+    KEEP(*(.sensor_dma.usart6_rx))
+    . = ALIGN(32);
+    __sensor_dma_end = .;
+  } >RAM_D2_SRAM1
+  __sensor_dma_size = __sensor_dma_end - __sensor_dma_start;
+
+  ASSERT(__sensor_dma_start == ORIGIN(RAM_D2_SRAM1) + 0xC0, "Sensor DMA buffers must start at SRAM1 + 0xC0")
+  ASSERT(__sensor_dma_size == 0x200, "Sensor DMA buffers must occupy exactly 512 bytes")
+  ASSERT(__sensor_dma_end <= ORIGIN(RAM_D2_SRAM1) + LENGTH(RAM_D2_SRAM1), "Sensor DMA buffers exceed SRAM1")
+
 
   /* Initialized data sections goes into RAM, load LMA copy after code */
   .data :

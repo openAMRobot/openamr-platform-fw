@@ -55,7 +55,8 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+extern DMA_HandleTypeDef hdma_usart2_rx;
+extern DMA_HandleTypeDef hdma_usart6_rx;
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

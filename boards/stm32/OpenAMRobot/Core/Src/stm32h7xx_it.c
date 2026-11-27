@@ -56,6 +56,9 @@
 
 /* External variables --------------------------------------------------------*/
 extern ETH_HandleTypeDef heth;
+extern TIM_HandleTypeDef htim13;
+extern DMA_HandleTypeDef hdma_usart2_rx;
+extern DMA_HandleTypeDef hdma_usart6_rx;
 extern FDCAN_HandleTypeDef hfdcan1;
 extern FDCAN_HandleTypeDef hfdcan2;
 extern FDCAN_HandleTypeDef hfdcan3;
@@ -206,6 +209,39 @@ void SysTick_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32h7xx.s).                    */
 /******************************************************************************/
+
+void TIM8_UP_TIM13_IRQHandler(void)
+{
+  HAL_TIM_IRQHandler(&htim13);
+}
+
+/**
+  * @brief This function handles DMA1 stream0 global interrupt.
+  */
+void DMA1_Stream0_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Stream0_IRQn 0 */
+
+  /* USER CODE END DMA1_Stream0_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart2_rx);
+  /* USER CODE BEGIN DMA1_Stream0_IRQn 1 */
+
+  /* USER CODE END DMA1_Stream0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 stream1 global interrupt.
+  */
+void DMA1_Stream1_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Stream1_IRQn 0 */
+
+  /* USER CODE END DMA1_Stream1_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart6_rx);
+  /* USER CODE BEGIN DMA1_Stream1_IRQn 1 */
+
+  /* USER CODE END DMA1_Stream1_IRQn 1 */
+}
 
 /**
   * @brief This function handles FDCAN1 interrupt 0.

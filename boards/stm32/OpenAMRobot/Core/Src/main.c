@@ -19,6 +19,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "oamr_board_smoke.h"
+#include "mb7060_sensor.h"
+#include "sensor_dma.h"
 #include "string.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -68,6 +70,10 @@ FDCAN_HandleTypeDef hfdcan2;
 FDCAN_HandleTypeDef hfdcan3;
 
 SPI_HandleTypeDef hspi4;
+TIM_HandleTypeDef htim13;
+
+DMA_HandleTypeDef hdma_usart2_rx;
+DMA_HandleTypeDef hdma_usart6_rx;
 
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart5;
@@ -84,6 +90,13 @@ UART_HandleTypeDef huart6;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
+static void MX_TIM13_Init(void);
+
+/* Provisional sensor scheduling values for non-actuating bench configuration;
+ * response/acoustic timing still requires measurement and approval. */
+#define MB7060_READING_TIMEOUT_US UINT64_C(120000)
+#define MB7060_INTER_SENSOR_GAP_US UINT64_C(10000)
 static void MX_FDCAN1_Init(void);
 static void MX_FDCAN2_Init(void);
 static void MX_FDCAN3_Init(void);
@@ -161,6 +174,8 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_TIM13_Init();
   MX_FDCAN1_Init();
   MX_FDCAN2_Init();
   MX_FDCAN3_Init();
@@ -196,6 +211,18 @@ int main(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /* Raw DMA may run before the delivered TF-Luna units are confirmed, but
+   * sensor_dma_init leaves parsing disabled until explicit configuration. */
+  bool sensors_ready = sensor_dma_init();
+  if (sensors_ready && !mb7060_sensor_init(MB7060_READING_TIMEOUT_US, MB7060_INTER_SENSOR_GAP_US))
+  {
+    sensors_ready = false;
+  }
+  if (!sensors_ready)
+  {
+    Error_Handler();
+  }
   
   /* USER CODE END 2 */
 
@@ -203,6 +230,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    sensor_dma_poll(HAL_GetTick());
+    mb7060_sensor_poll();
 
     /* USER CODE END WHILE */
 
@@ -815,6 +844,44 @@ static void MX_USART6_UART_Init(void)
 
   /* USER CODE END USART6_Init 2 */
 
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+
+}
+
+/**
+  * @brief TIM13 Initialization Function: 1 MHz timebase for MB7060 scheduling.
+  */
+static void MX_TIM13_Init(void)
+{
+  htim13.Instance = TIM13;
+  htim13.Init.Prescaler = 47; /* 48 MHz timer kernel clock -> 1 MHz */
+  htim13.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim13.Init.Period = 0xFFFF;
+  htim13.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim13.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim13) != HAL_OK ||
+      HAL_TIM_OC_Init(&htim13) != HAL_OK ||
+      HAL_TIM_Base_Start(&htim13) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /**

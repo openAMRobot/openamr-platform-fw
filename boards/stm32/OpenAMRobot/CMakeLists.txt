@@ -49,6 +49,17 @@ target_include_directories(oamr_common PUBLIC
     ${OAMR_FIRMWARE_ROOT}/common/include
     ${OAMR_FIRMWARE_ROOT}/transport/include
 )
+add_library(oamr_sensor_bridge STATIC
+    ${OAMR_FIRMWARE_ROOT}/sensor_bridge/src/mb7060.c
+    ${OAMR_FIRMWARE_ROOT}/sensor_bridge/src/tfluna.c
+    ${OAMR_FIRMWARE_ROOT}/sensor_bridge/src/sensor_scheduler.c
+    ${OAMR_FIRMWARE_ROOT}/sensor_bridge/src/dma_cursor.c
+)
+target_include_directories(oamr_sensor_bridge PUBLIC
+    ${OAMR_FIRMWARE_ROOT}/common/include
+    ${OAMR_FIRMWARE_ROOT}/sensor_bridge/include
+)
+
 set_property(TARGET ${CMAKE_PROJECT_NAME} APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/STM32H723xG_flash.ld"
 )
@@ -60,12 +71,14 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    App/Src/sensor_dma.c
+    App/Src/mb7060_sensor.c
+    App/Src/sensor_uart_callbacks.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
+    App/Inc
 )
 
 # Add project symbols (macros)
@@ -80,6 +93,7 @@ list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
     oamr_common
+    oamr_sensor_bridge
 
     # Add user defined libraries
 )

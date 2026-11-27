@@ -20,6 +20,8 @@ import check_stm32_memory as memory
 VALID_NM = """\
 30000000 00000060 B DMARxDscrTab
 30000060 00000060 B DMATxDscrTab
+300000c0 00000100 B sensor_usart2_rx_buffer
+300001c0 00000100 B sensor_usart6_rx_buffer
 20020000 R _estack
 2001f000 A _sstack
 00001000 A _Min_Stack_Size
@@ -377,7 +379,7 @@ class ProfileFrameworkTests(unittest.TestCase):
         self.assertEqual(memory.DEFAULT_PROFILE, memory.PROFILES[-1])
 
     def test_memory_init_accepts_the_base_layout(self) -> None:
-        nm = VALID_NM
+        nm = self.without(VALID_NM, "sensor_usart")
         report = memory.check_elf_symbols(nm, "memory-init")
         self.assertTrue(report.passed, errors(report))
 
@@ -413,7 +415,7 @@ class ProfileFrameworkTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
             nm_output = root / "nm.txt"
-            nm_output.write_text(VALID_NM, encoding="utf-8")
+            nm_output.write_text(self.without(VALID_NM, "sensor_usart"), encoding="utf-8")
             elf = root / "fixture.elf"
             elf.touch()
             elf.with_suffix(".map").write_text(MapPolicyTests.valid_map, encoding="utf-8")
@@ -425,6 +427,30 @@ class ProfileFrameworkTests(unittest.TestCase):
                 ])
             self.assertEqual(result, 0, stdout.getvalue() + stderr.getvalue())
             self.assertIn("Policy profile: memory-init", stdout.getvalue())
+
+
+class SensorsProfileTests(unittest.TestCase):
+    without = staticmethod(ProfileFrameworkTests.without)
+
+    def test_sensors_profile_accepts_its_layout(self) -> None:
+        report = memory.check_elf_symbols(self.without(VALID_NM, "__fault_retained"), "sensors")
+        self.assertTrue(report.passed, errors(report))
+
+    def test_sensors_profile_requires_the_sensor_buffers(self) -> None:
+        nm = self.without(VALID_NM, "sensor_usart", "__fault_retained")
+        report = memory.check_elf_symbols(nm, "sensors")
+        self.assertIn("required symbol sensor_usart2_rx_buffer not found", errors(report))
+        self.assertTrue(memory.check_elf_symbols(nm, "memory-init").passed)
+
+    def test_sensor_buffer_extent_is_checked_only_by_the_sensors_profile(self) -> None:
+        wrong = VALID_NM.replace("300000c0 00000100 B sensor_usart2_rx_buffer",
+                                 "300000e0 00000100 B sensor_usart2_rx_buffer")
+        self.assertIn("sensor_usart2_rx_buffer is", errors(memory.check_elf_symbols(wrong, "sensors")))
+        self.assertTrue(memory.check_elf_symbols(wrong, "memory-init").passed)
+
+    def test_default_profile_rejects_a_layout_without_sensor_buffers(self) -> None:
+        nm = self.without(VALID_NM, "sensor_usart")
+        self.assertFalse(memory.check_elf_symbols(nm).passed)
 
 
 class CommandFixtureTests(unittest.TestCase):
