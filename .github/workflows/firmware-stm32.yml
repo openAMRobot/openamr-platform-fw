@@ -53,7 +53,7 @@ jobs:
           fi
 
       - name: Ethernet DMA descriptors and memory policy
-        run: python3 ../../../tools/ci/check_stm32_memory.py --profile sensors build/${{ matrix.preset }}/OpenAMRobot.elf
+        run: python3 ../../../tools/ci/check_stm32_memory.py --profile retained build/${{ matrix.preset }}/OpenAMRobot.elf
 
       - name: FDCAN timing and message RAM policy
         working-directory: .

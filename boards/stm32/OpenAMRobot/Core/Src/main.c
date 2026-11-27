@@ -19,6 +19,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "diagnostics_uart.h"
+#include "fault_capture.h"
+#include "fault_reporter.h"
 #include "fdcan_adapter.h"
 #include "oamr_board_smoke.h"
 #include "mb7060_sensor.h"
@@ -87,6 +89,7 @@ UART_HandleTypeDef huart6;
 
 /* USER CODE BEGIN PV */
 static uint32_t diagnostics_reset_flags;
+static fault_reporter_t fault_reporter;
 
 /* USER CODE END PV */
 
@@ -167,6 +170,9 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+  /* Enable the backup regulator only after HAL's timebase is running, then
+   * copy validated retained evidence before other peripheral initialization. */
+  fault_capture_boot_init();
 
   /* USER CODE BEGIN Init */
 
@@ -176,7 +182,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  fault_capture_boot_complete();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -223,6 +229,16 @@ int main(void)
   /* Raw DMA may run before the delivered TF-Luna units are confirmed, but
    * sensor_dma_init leaves parsing disabled until explicit configuration. */
   (void)diagnostics_uart_init(&huart3, diagnostics_reset_flags);
+  (void)fault_reporter_init(&fault_reporter, diagnostics_uart_transport_write, NULL);
+  if (fault_capture_boot_has_record())
+  {
+    oamr_fault_record_t boot_fault;
+    oamr_exception_capture_metadata_t boot_metadata;
+    if (fault_capture_boot_get_snapshot(&boot_fault, &boot_metadata))
+    {
+      (void)fault_reporter_submit(&fault_reporter, &boot_fault, &boot_metadata);
+    }
+  }
   bool sensors_ready = sensor_dma_init();
   if (!sensors_ready)
   {
@@ -260,6 +276,7 @@ int main(void)
     sensor_dma_poll(HAL_GetTick());
     mb7060_sensor_poll();
     fdcan_adapter_poll(HAL_GetTick());
+    (void)fault_reporter_poll(&fault_reporter);
     diagnostics_uart_poll();
 
     /* USER CODE END WHILE */

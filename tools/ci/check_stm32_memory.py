@@ -6,9 +6,10 @@ working directory.  ``--nm-output`` and the individual source-path options are
 intended for deterministic, stdlib-only test fixtures.
 
 Profiles (``--profile``) select which layout rules apply, cumulatively:
-``memory-init`` (Ethernet descriptors, stack, SRAM split) and ``sensors`` (adds the
-two sensor DMA buffers). A later layout still satisfies every earlier profile; an
-earlier layout fails a later profile on purpose.
+``memory-init`` (Ethernet descriptors, stack, SRAM split), ``sensors`` (adds the
+two sensor DMA buffers) and ``retained`` (adds the Backup SRAM fault-retention
+region; the default and strictest profile).  A later layout still satisfies
+every earlier profile; an earlier layout fails a later profile on purpose.
 
 This is static evidence only.  In particular, the vendor HAL call-order check
 is source inspection, not runtime instrumentation or a hardware DMA test.
@@ -52,13 +53,21 @@ SENSOR_DMA_SYMBOLS = ("sensor_usart2_rx_buffer", "sensor_usart6_rx_buffer")
 SENSOR_DMA_START = 0x300000C0
 SENSOR_DMA_SIZE = 0x100
 SENSOR_DMA_END = 0x300002C0
+BACKUP_SRAM_START = 0x38800000
+BACKUP_SRAM_SIZE = 0x1000
+RETAINED_SECTION_SYMBOLS = (
+    "__fault_retained_start",
+    "__fault_retained_end",
+    "__fault_retained_size",
+)
 
 
-PROFILES = ("memory-init", "sensors")
-DEFAULT_PROFILE = "sensors"
+PROFILES = ("memory-init", "sensors", "retained")
+DEFAULT_PROFILE = "retained"
 _PROFILE_FEATURES = {
     "memory-init": frozenset(),
     "sensors": frozenset({"sensors"}),
+    "retained": frozenset({"sensors", "retained"}),
 }
 
 
@@ -75,6 +84,7 @@ def _required_symbols(profile: str) -> tuple[str, ...]:
         *DESCRIPTOR_SYMBOLS,
         *STACK_SYMBOLS,
         *(SENSOR_DMA_SYMBOLS if "sensors" in features else ()),
+        *(RETAINED_SECTION_SYMBOLS if "retained" in features else ()),
     )
 
 
@@ -235,6 +245,35 @@ def check_elf_symbols(nm_output: str, profile: str = DEFAULT_PROFILE) -> Report:
             report.error(f"{name} violates sensor DMA alignment or extent")
         else:
             report.note(f"{name}: 256-byte circular buffer at 0x{symbol.address:08X} in SRAM1")
+
+    retained_start = symbols.get("__fault_retained_start")
+    retained_end = symbols.get("__fault_retained_end")
+    retained_size = symbols.get("__fault_retained_size")
+    if "retained" in features and retained_start is not None and retained_end is not None and retained_size is not None:
+        actual_size = retained_end.address - retained_start.address
+        if retained_start.address != BACKUP_SRAM_START:
+            report.error(
+                f"__fault_retained_start is 0x{retained_start.address:08X}; "
+                f"expected Backup SRAM base 0x{BACKUP_SRAM_START:08X}"
+            )
+        if retained_start.address % 8 != 0 or actual_size <= 0:
+            report.error("fault retained extent must be nonempty and 8-byte aligned")
+        if actual_size != retained_size.address:
+            report.error("fault retained linker size does not match its start/end symbols")
+        if retained_end.address > BACKUP_SRAM_START + BACKUP_SRAM_SIZE:
+            report.error("fault retained extent exceeds the 4 KiB Backup SRAM region")
+        if (
+            retained_start.address == BACKUP_SRAM_START
+            and retained_start.address % 8 == 0
+            and actual_size > 0
+            and actual_size == retained_size.address
+            and retained_end.address <= BACKUP_SRAM_START + BACKUP_SRAM_SIZE
+        ):
+            report.note(
+                f"Fault retention: [0x{retained_start.address:08X}, "
+                f"0x{retained_end.address:08X}), {actual_size} bytes in Backup SRAM; "
+                "power-loss retention remains hardware-dependent"
+            )
 
     estack = symbols.get("_estack")
     sstack = symbols.get("_sstack")
@@ -509,7 +548,7 @@ def check_linker_and_ioc(linker_source: str, ioc_source: str, profile: str = DEF
     the stack value it does own, rather than inventing nonstandard IOC keys.
     """
     report = Report()
-    _features(profile)  # rejects unknown profiles
+    features = _features(profile)
     regions = parse_linker_regions(linker_source)
     sram_regions: dict[str, str] = {}
     for label, expected_origin in (("SRAM1", SRAM1_START), ("SRAM2", SRAM2_START)):
@@ -541,6 +580,31 @@ def check_linker_and_ioc(linker_source: str, ioc_source: str, profile: str = DEF
             report.error(f"linker .{section} targets {target}; expected {expected} (SRAM1)")
         else:
             report.note(f"Linker .{section} targets {target}")
+
+    if "retained" in features:
+        backup_regions = [
+            (name, extent)
+            for name, extent in regions.items()
+            if extent[0] == BACKUP_SRAM_START
+        ]
+        if len(backup_regions) != 1:
+            report.error("linker must declare exactly one Backup SRAM region at 0x38800000")
+        else:
+            backup_name, (_, backup_length) = backup_regions[0]
+            if backup_length != BACKUP_SRAM_SIZE:
+                report.error(f"linker {backup_name} must reserve exactly 4 KiB of Backup SRAM")
+            retained_target = _section_target(linker_source, "fault_retained")
+            if retained_target != backup_name:
+                report.error(".fault_retained must target only the declared Backup SRAM region")
+            if not re.search(
+                r"\.\s*fault_retained\b[^}]*\(NOLOAD\)",
+                linker_source,
+                re.DOTALL,
+            ):
+                report.error(".fault_retained must be NOLOAD so startup cannot erase it")
+            for symbol in RETAINED_SECTION_SYMBOLS:
+                if _single_assignment(linker_source, symbol) is None:
+                    report.error(f"linker must define {symbol} exactly once")
 
     stack_text = _single_assignment(linker_source, "_Min_Stack_Size")
     stack_value: int | None = None
@@ -591,7 +655,7 @@ def check_linker_and_ioc(linker_source: str, ioc_source: str, profile: str = DEF
 def check_map_policy(map_source: str, profile: str = DEFAULT_PROFILE) -> Report:
     """Cross-check descriptor sections and reject allocations in reserved SRAM2."""
     report = Report()
-    _features(profile)  # rejects unknown profiles
+    features = _features(profile)
     section_re = re.compile(
         r"(?m)^(\.[A-Za-z_][A-Za-z0-9_.-]*)(?:[ \t]+\(NOLOAD\))?[ \t]*(?:\n[ \t]*)?"
         r"(0x[0-9A-Fa-f]+)\s+(0x[0-9A-Fa-f]+)(?:\s+load address\s+0x[0-9A-Fa-f]+)?\s*$"
@@ -624,6 +688,22 @@ def check_map_policy(map_source: str, profile: str = DEFAULT_PROFILE) -> Report:
     if not allocations:
         report.note("Map contains no allocated output section in reserved SRAM2")
 
+    if "retained" in features:
+        retained = [item for item in sections if item[0] == ".fault_retained"]
+        if len(retained) != 1:
+            report.error("map must contain exactly one .fault_retained output section")
+        else:
+            _, retained_address, retained_size = retained[0]
+            if retained_address != BACKUP_SRAM_START or not (0 < retained_size <= BACKUP_SRAM_SIZE):
+                report.error(
+                    f"map .fault_retained at 0x{retained_address:08X}/0x{retained_size:X} "
+                    "does not fit the declared Backup SRAM region"
+                )
+            else:
+                report.note(
+                    f"Map .fault_retained: 0x{retained_address:08X}, "
+                    f"{retained_size} bytes, outside startup .data/.bss regions"
+                )
     return report
 
 
