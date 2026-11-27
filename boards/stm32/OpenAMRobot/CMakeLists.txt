@@ -45,10 +45,14 @@ add_library(oamr_common STATIC
     ${OAMR_FIRMWARE_ROOT}/common/src/freshness.c
     ${OAMR_FIRMWARE_ROOT}/common/src/bounded_queue.c
     ${OAMR_FIRMWARE_ROOT}/transport/src/fdcan_recovery.c
+    ${OAMR_FIRMWARE_ROOT}/diagnostics/src/reset_cause.c
+    ${OAMR_FIRMWARE_ROOT}/diagnostics/src/fault_record.c
+    ${OAMR_FIRMWARE_ROOT}/diagnostics/src/diagnostic_tx.c
 )
 target_include_directories(oamr_common PUBLIC
     ${OAMR_FIRMWARE_ROOT}/common/include
     ${OAMR_FIRMWARE_ROOT}/transport/include
+    ${OAMR_FIRMWARE_ROOT}/diagnostics/include
 )
 add_library(oamr_sensor_bridge STATIC
     ${OAMR_FIRMWARE_ROOT}/sensor_bridge/src/mb7060.c
@@ -76,6 +80,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/mb7060_sensor.c
     App/Src/sensor_uart_callbacks.c
     App/Src/fdcan_adapter.c
+    App/Src/diagnostics_uart.c
 )
 
 # Add include paths
