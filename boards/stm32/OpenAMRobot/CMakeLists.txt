@@ -37,6 +37,18 @@ add_executable(${CMAKE_PROJECT_NAME})
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 
+# Portable, HAL-independent application building blocks. Keep board adapters
+# separate from these deterministic modules.
+set(OAMR_FIRMWARE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../firmware")
+add_library(oamr_common STATIC
+    ${OAMR_FIRMWARE_ROOT}/common/src/time.c
+    ${OAMR_FIRMWARE_ROOT}/common/src/freshness.c
+    ${OAMR_FIRMWARE_ROOT}/common/src/bounded_queue.c
+)
+target_include_directories(oamr_common PUBLIC
+    ${OAMR_FIRMWARE_ROOT}/common/include
+    ${OAMR_FIRMWARE_ROOT}/transport/include
+)
 set_property(TARGET ${CMAKE_PROJECT_NAME} APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/STM32H723xG_flash.ld"
 )
@@ -67,6 +79,7 @@ list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 # Add linked libraries
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
+    oamr_common
 
     # Add user defined libraries
 )

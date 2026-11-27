@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "oamr_board_smoke.h"
 #include "string.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -172,6 +173,8 @@ int main(void)
   MX_UART4_Init();
   MX_UART5_Init();
   /* USER CODE BEGIN 2 */
+  /* Retain an embedded API consumer without enabling any peripheral behavior. */
+  (void)oamr_board_smoke();
 
   /*
    * Pin-map exceptions (NUCLEO-H723ZG pin map, Section 7):
